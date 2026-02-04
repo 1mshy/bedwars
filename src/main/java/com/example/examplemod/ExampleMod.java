@@ -34,6 +34,12 @@ public class ExampleMod {
     private static boolean inBedwarsLobby = false;
 
     @Mod.EventHandler
+    public void preInit(net.minecraftforge.fml.common.event.FMLPreInitializationEvent event) {
+        // Load configuration (including saved API key)
+        ModConfig.init(event);
+    }
+
+    @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
         // Register this class as an event handler
         MinecraftForge.EVENT_BUS.register(this);
@@ -55,7 +61,7 @@ public class ExampleMod {
         String message = event.message.getUnformattedText();
 
         // Detect Bed Wars lobby message - matches the title shown in the screenshot
-        if (message.contains("Bed Wars") && message.contains("Protect your bed")) {
+        if (message.contains("Protect your bed and destroy the enemy beds.")) {
             if (!inBedwarsLobby) {
                 inBedwarsLobby = true;
                 // Clear previous entries when entering a new lobby
@@ -274,8 +280,9 @@ public class ExampleMod {
                     sendMessage(sender, EnumChatFormatting.RED + "Usage: /bwstats setkey <apikey>");
                     return;
                 }
-                HypixelAPI.setApiKey(args[1]);
-                sendMessage(sender, EnumChatFormatting.GREEN + "API key set successfully!");
+                // Save API key to config file so it persists across restarts
+                ModConfig.setApiKey(args[1]);
+                sendMessage(sender, EnumChatFormatting.GREEN + "API key set and saved!");
 
             } else if (subCommand.equals("lookup")) {
                 if (args.length < 2) {

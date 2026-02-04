@@ -1,14 +1,14 @@
 [
 {
-  "modid": "examplemod",
-  "name": "Example Mod",
-  "description": "Example placeholder mod.",
+  "modid": "bedwarsstats",
+  "name": "BedwarsStats",
+  "description": "Tracks Bedwars stats in-game.",
   "version": "${version}",
   "mcversion": "${mcversion}",
-  "url": "",
-  "updateUrl": "",
-  "authorList": ["ExampleDude"],
-  "credits": "The Forge and FML guys, for making this example",
+  "url": "https://github.com/1mshy/bedwars",
+  "updateUrl": "https://github.com/1mshy/bedwars",
+  "authorList": ["Luca Lapenna"],
+  "credits": "The minecraft community",
   "logoFile": "",
   "screenshots": [],
   "dependencies": []

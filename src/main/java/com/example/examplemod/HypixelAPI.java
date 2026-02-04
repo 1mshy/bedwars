@@ -18,7 +18,7 @@ import java.util.concurrent.Executors;
 public class HypixelAPI {
 
     private static final String HYPIXEL_API_URL = "https://api.hypixel.net/player";
-    private static final String MOJANG_API_URL = "https://api.mojang.com/users/profiles/minecraft/";
+    private static final String MOJANG_API_URL = "https://api.minecraftservices.com/minecraft/profile/lookup/name/";
 
     // Your Hypixel API key - get one from https://developer.hypixel.net/dashboard/
     // TODO: Move to config file for production
@@ -183,15 +183,18 @@ public class HypixelAPI {
             }
             reader.close();
 
-            // Parse UUID from response
+            // Parse UUID from response using Gson
             String json = response.toString();
-            String uuid = extractString(json, "id");
+            JsonObject jsonObj = new JsonParser().parse(json).getAsJsonObject();
 
-            if (uuid != null) {
-                // Format UUID with dashes
-                uuid = formatUUID(uuid);
-                uuidCache.put(playerName.toLowerCase(), uuid);
+            if (!jsonObj.has("id")) {
+                return null;
             }
+
+            String uuid = jsonObj.get("id").getAsString();
+            // Format UUID with dashes
+            uuid = formatUUID(uuid);
+            uuidCache.put(playerName.toLowerCase(), uuid);
 
             return uuid;
 
