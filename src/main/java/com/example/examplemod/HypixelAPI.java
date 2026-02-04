@@ -97,7 +97,7 @@ public class HypixelAPI {
 
         // Check if API key is set
         if (!hasApiKey()) {
-            callback.onError("No API key set. Use /bwstats setkey <key>");
+            callback.onError("No API key set. Use /bw setkey <key>");
             return;
         }
 
@@ -152,7 +152,7 @@ public class HypixelAPI {
 
         // Check if API key is set
         if (!hasApiKey()) {
-            callback.onError("No API key set. Use /bwstats setkey <key>");
+            callback.onError("No API key set. Use /bw setkey <key>");
             return;
         }
 
@@ -362,7 +362,7 @@ public class HypixelAPI {
     }
 
     /**
-     * Get cache and rate limit status for /bwstats status command
+     * Get cache and rate limit status for /bw status command
      */
     public static String getCacheStatus() {
         int cacheSize = statsCache.size();

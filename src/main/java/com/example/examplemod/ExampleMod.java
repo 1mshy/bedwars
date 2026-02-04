@@ -44,10 +44,10 @@ public class ExampleMod {
         // Register this class as an event handler
         MinecraftForge.EVENT_BUS.register(this);
 
-        // Register the /bwstats command
+        // Register the /bw command
         ClientCommandHandler.instance.registerCommand(new BedwarsCommand());
 
-        System.out.println("[BedwarsStats] Mod initialized! Use /bwstats setkey <apikey> to set your Hypixel API key.");
+        System.out.println("[BedwarsStats] Mod initialized! Use /bw setkey <apikey> to set your Hypixel API key.");
     }
 
     /**
@@ -310,18 +310,18 @@ public class ExampleMod {
     }
 
     /**
-     * Command handler for /bwstats
+     * Command handler for /bw
      */
     public static class BedwarsCommand extends CommandBase {
 
         @Override
         public String getCommandName() {
-            return "bwstats";
+            return "bw";
         }
 
         @Override
         public String getCommandUsage(ICommandSender sender) {
-            return "/bwstats <setkey|lookup|all|blacklist|history|status|clear> [args]";
+            return "/bw <setkey|lookup|all|blacklist|history|status|clear> [args]";
         }
 
         @Override
@@ -333,13 +333,13 @@ public class ExampleMod {
         public void processCommand(ICommandSender sender, String[] args) throws CommandException {
             if (args.length == 0) {
                 sendMessage(sender, EnumChatFormatting.GOLD + "=== BedwarsStats Commands ===");
-                sendMessage(sender, "/bwstats setkey <key> - Set your Hypixel API key");
-                sendMessage(sender, "/bwstats lookup <player> - Look up a player's stats");
-                sendMessage(sender, "/bwstats all - Check stats for everyone in the lobby");
-                sendMessage(sender, "/bwstats blacklist <add|remove|list> [player] [reason] - Manage blacklist");
-                sendMessage(sender, "/bwstats history [player] - View encounter history");
-                sendMessage(sender, "/bwstats status - Show cache and rate limit info");
-                sendMessage(sender, "/bwstats clear - Clear the stats cache");
+                sendMessage(sender, "/bw setkey <key> - Set your Hypixel API key");
+                sendMessage(sender, "/bw lookup <player> - Look up a player's stats");
+                sendMessage(sender, "/bw all - Check stats for everyone in the lobby");
+                sendMessage(sender, "/bw blacklist <add|remove|list> [player] [reason] - Manage blacklist");
+                sendMessage(sender, "/bw history [player] - View encounter history");
+                sendMessage(sender, "/bw status - Show cache and rate limit info");
+                sendMessage(sender, "/bw clear - Clear the stats cache");
                 return;
             }
 
@@ -347,7 +347,7 @@ public class ExampleMod {
 
             if (subCommand.equals("setkey")) {
                 if (args.length < 2) {
-                    sendMessage(sender, EnumChatFormatting.RED + "Usage: /bwstats setkey <apikey>");
+                    sendMessage(sender, EnumChatFormatting.RED + "Usage: /bw setkey <apikey>");
                     return;
                 }
                 // Save API key to config file so it persists across restarts
@@ -356,7 +356,7 @@ public class ExampleMod {
 
             } else if (subCommand.equals("lookup")) {
                 if (args.length < 2) {
-                    sendMessage(sender, EnumChatFormatting.RED + "Usage: /bwstats lookup <playername>");
+                    sendMessage(sender, EnumChatFormatting.RED + "Usage: /bw lookup <playername>");
                     return;
                 }
                 final String targetPlayer = args[1];
@@ -396,7 +396,7 @@ public class ExampleMod {
 
             } else if (subCommand.equals("all")) {
                 if (!HypixelAPI.hasApiKey()) {
-                    sendMessage(sender, EnumChatFormatting.RED + "No API key set. Use /bwstats setkey <key>");
+                    sendMessage(sender, EnumChatFormatting.RED + "No API key set. Use /bw setkey <key>");
                     return;
                 }
 
@@ -481,8 +481,53 @@ public class ExampleMod {
                 sendMessage(sender, EnumChatFormatting.GREEN + "Cache cleared!");
 
             } else {
-                sendMessage(sender, EnumChatFormatting.RED + "Unknown command. Use /bwstats for help.");
+                sendMessage(sender, EnumChatFormatting.RED + "Unknown command. Use /bw for help.");
             }
+        }
+
+        @Override
+        public List<String> addTabCompletionOptions(ICommandSender sender, String[] args,
+                net.minecraft.util.BlockPos pos) {
+            if (args.length == 1) {
+                // Autocomplete subcommands
+                return getListOfStringsMatchingLastWord(args, "setkey", "lookup", "all", "blacklist", "history",
+                        "status", "clear");
+            }
+
+            if (args.length == 2) {
+                String subCommand = args[0].toLowerCase();
+
+                // For lookup and history, suggest online player names
+                if (subCommand.equals("lookup") || subCommand.equals("history")) {
+                    Minecraft mc = Minecraft.getMinecraft();
+                    if (mc.theWorld != null) {
+                        List<String> playerNames = new ArrayList<String>();
+                        for (EntityPlayer player : mc.theWorld.playerEntities) {
+                            playerNames.add(player.getName());
+                        }
+                        return getListOfStringsMatchingLastWord(args, playerNames.toArray(new String[0]));
+                    }
+                }
+
+                // For blacklist, suggest add/remove/list
+                if (subCommand.equals("blacklist")) {
+                    return getListOfStringsMatchingLastWord(args, "add", "remove", "list");
+                }
+            }
+
+            if (args.length == 3 && args[0].toLowerCase().equals("blacklist")) {
+                // For blacklist add/remove, suggest player names
+                Minecraft mc = Minecraft.getMinecraft();
+                if (mc.theWorld != null) {
+                    List<String> playerNames = new ArrayList<String>();
+                    for (EntityPlayer player : mc.theWorld.playerEntities) {
+                        playerNames.add(player.getName());
+                    }
+                    return getListOfStringsMatchingLastWord(args, playerNames.toArray(new String[0]));
+                }
+            }
+
+            return null;
         }
 
         private void handleBlacklistCommand(ICommandSender sender, String[] args) {
@@ -490,7 +535,7 @@ public class ExampleMod {
 
             if (args.length < 2) {
                 sendMessage(sender,
-                        EnumChatFormatting.RED + "Usage: /bwstats blacklist <add|remove|list> [player] [reason]");
+                        EnumChatFormatting.RED + "Usage: /bw blacklist <add|remove|list> [player] [reason]");
                 return;
             }
 
@@ -498,7 +543,7 @@ public class ExampleMod {
 
             if (action.equals("add")) {
                 if (args.length < 3) {
-                    sendMessage(sender, EnumChatFormatting.RED + "Usage: /bwstats blacklist add <player> [reason]");
+                    sendMessage(sender, EnumChatFormatting.RED + "Usage: /bw blacklist add <player> [reason]");
                     return;
                 }
                 String playerName = args[2];
@@ -508,7 +553,7 @@ public class ExampleMod {
 
             } else if (action.equals("remove")) {
                 if (args.length < 3) {
-                    sendMessage(sender, EnumChatFormatting.RED + "Usage: /bwstats blacklist remove <player>");
+                    sendMessage(sender, EnumChatFormatting.RED + "Usage: /bw blacklist remove <player>");
                     return;
                 }
                 String playerName = args[2];
@@ -545,7 +590,7 @@ public class ExampleMod {
                 // Show overall history summary
                 sendMessage(sender, EnumChatFormatting.GOLD + "=== Encounter History ===");
                 sendMessage(sender, "Total unique players: " + db.getHistorySize());
-                sendMessage(sender, "Use /bwstats history <player> for details");
+                sendMessage(sender, "Use /bw history <player> for details");
                 return;
             }
 
