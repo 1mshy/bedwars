@@ -446,7 +446,7 @@ public class ExampleMod {
 
         @Override
         public String getCommandUsage(ICommandSender sender) {
-            return "/bw <setkey|lookup|all|blacklist|history|status|clear> [args]";
+            return "/bw <setkey|lookup|all|info|blacklist|history|status|clear> [args]";
         }
 
         @Override
@@ -461,6 +461,7 @@ public class ExampleMod {
                 sendMessage(sender, "/bw setkey <key> - Set your Hypixel API key");
                 sendMessage(sender, "/bw lookup <player> - Look up a player's stats");
                 sendMessage(sender, "/bw all - Check stats for everyone in the lobby");
+                sendMessage(sender, "/bw info - Show threats and history players in lobby");
                 sendMessage(sender, "/bw blacklist <add|remove|list> [player] [reason] - Manage blacklist");
                 sendMessage(sender, "/bw history [player] - View encounter history");
                 sendMessage(sender, "/bw status - Show cache and rate limit info");
@@ -580,6 +581,9 @@ public class ExampleMod {
                     sendMessage(sender, EnumChatFormatting.YELLOW + "Looking up " + count + " players...");
                 }
 
+            } else if (subCommand.equals("info")) {
+                handleInfoCommand(sender);
+
             } else if (subCommand.equals("blacklist")) {
                 handleBlacklistCommand(sender, args);
 
@@ -615,7 +619,7 @@ public class ExampleMod {
                 net.minecraft.util.BlockPos pos) {
             if (args.length == 1) {
                 // Autocomplete subcommands
-                return getListOfStringsMatchingLastWord(args, "setkey", "lookup", "all", "blacklist", "history",
+                return getListOfStringsMatchingLastWord(args, "setkey", "lookup", "all", "info", "blacklist", "history",
                         "status", "clear");
             }
 
@@ -653,6 +657,91 @@ public class ExampleMod {
             }
 
             return null;
+        }
+
+        private void handleInfoCommand(ICommandSender sender) {
+            Minecraft mc = Minecraft.getMinecraft();
+            if (mc.theWorld == null || mc.thePlayer == null) {
+                sendMessage(sender, EnumChatFormatting.RED + "You must be in a world to use this command.");
+                return;
+            }
+
+            PlayerDatabase db = PlayerDatabase.getInstance();
+            List<EntityPlayer> players = mc.theWorld.playerEntities;
+
+            List<String> threats = new ArrayList<String>();
+            List<String> historyPlayers = new ArrayList<String>();
+
+            sendMessage(sender, EnumChatFormatting.GOLD + "=== Lobby Info ===");
+
+            for (EntityPlayer player : players) {
+                // Skip yourself
+                if (player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+                    continue;
+                }
+
+                String playerName = player.getName();
+
+                // Check for threats (cached stats with MEDIUM+ threat level)
+                BedwarsStats stats = HypixelAPI.getCachedStats(playerName);
+                if (stats != null && stats.isLoaded()) {
+                    BedwarsStats.ThreatLevel threat = stats.getThreatLevel();
+                    if (threat == BedwarsStats.ThreatLevel.MEDIUM ||
+                            threat == BedwarsStats.ThreatLevel.HIGH ||
+                            threat == BedwarsStats.ThreatLevel.EXTREME) {
+                        String threatInfo = stats.getThreatColor() + playerName + " " +
+                                EnumChatFormatting.WHITE + "[" + stats.getStars() + "⭐] " +
+                                EnumChatFormatting.YELLOW + String.format("%.2f", stats.getFkdr()) + " FKDR " +
+                                EnumChatFormatting.GRAY + "(" + threat.name() + ")";
+                        threats.add(threatInfo);
+                    }
+                }
+
+                // Check for history players
+                if (db.hasPlayedBefore(playerName)) {
+                    int[] record = db.getWinLossRecord(playerName);
+                    int wins = record[0];
+                    int losses = record[1];
+                    int encounters = db.getEncounterCount(playerName);
+
+                    String recordColor;
+                    if (wins > losses) {
+                        recordColor = EnumChatFormatting.GREEN.toString();
+                    } else if (losses > wins) {
+                        recordColor = EnumChatFormatting.RED.toString();
+                    } else {
+                        recordColor = EnumChatFormatting.YELLOW.toString();
+                    }
+
+                    String historyInfo = EnumChatFormatting.AQUA + playerName +
+                            EnumChatFormatting.GRAY + " - Played " + encounters + "x | Record: " +
+                            recordColor + wins + "W-" + losses + "L";
+                    historyPlayers.add(historyInfo);
+                }
+            }
+
+            // Display threats
+            if (!threats.isEmpty()) {
+                sendMessage(sender, EnumChatFormatting.RED + "⚠ Threats (" + threats.size() + "):");
+                for (String threat : threats) {
+                    sendMessage(sender, "  " + threat);
+                }
+            } else {
+                sendMessage(sender, EnumChatFormatting.GREEN + "✓ No threats detected");
+            }
+
+            // Display history players
+            if (!historyPlayers.isEmpty()) {
+                sendMessage(sender, EnumChatFormatting.AQUA + "📜 History Players (" + historyPlayers.size() + "):");
+                for (String historyPlayer : historyPlayers) {
+                    sendMessage(sender, "  " + historyPlayer);
+                }
+            } else {
+                sendMessage(sender, EnumChatFormatting.GRAY + "No previously encountered players");
+            }
+
+            int total = players.size() - 1; // minus yourself
+            sendMessage(sender, EnumChatFormatting.GRAY + "Total players in lobby: " + total);
         }
 
         private void handleBlacklistCommand(ICommandSender sender, String[] args) {
