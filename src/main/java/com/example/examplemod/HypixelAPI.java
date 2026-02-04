@@ -20,16 +20,46 @@ public class HypixelAPI {
     private static final String HYPIXEL_API_URL = "https://api.hypixel.net/player";
     private static final String MOJANG_API_URL = "https://api.minecraftservices.com/minecraft/profile/lookup/name/";
 
+    // Cache configuration
+    private static final long CACHE_EXPIRATION_MS = 60 * 60 * 1000; // 60 minutes
+
+    // Rate limiting configuration (Hypixel limit is 120 req/min)
+    private static final int RATE_LIMIT_MAX = 120;
+    private static final long RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+
     // Your Hypixel API key - get one from https://developer.hypixel.net/dashboard/
-    // TODO: Move to config file for production
     private static String API_KEY = "";
 
-    // Cache to avoid repeat API calls
-    private static final Map<String, BedwarsStats> statsCache = new HashMap<String, BedwarsStats>();
-    private static final Map<String, String> uuidCache = new HashMap<String, String>();
+    // Cache wrapper class with timestamp
+    private static class CachedStats {
+        BedwarsStats stats;
+        long timestamp;
+
+        CachedStats(BedwarsStats stats) {
+            this.stats = stats;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        boolean isExpired() {
+            return System.currentTimeMillis() - timestamp > CACHE_EXPIRATION_MS;
+        }
+
+        long getAgeMinutes() {
+            return (System.currentTimeMillis() - timestamp) / (60 * 1000);
+        }
+    }
+
+    // Cache to avoid repeat API calls (now with expiration)
+    private static final java.util.Map<String, CachedStats> statsCache = new java.util.HashMap<String, CachedStats>();
+    private static final java.util.Map<String, String> uuidCache = new java.util.HashMap<String, String>();
+
+    // Rate limiting tracking
+    private static final java.util.List<Long> requestTimestamps = new java.util.ArrayList<Long>();
+    private static int rateLimitedRequests = 0;
 
     // Thread pool for async API calls
-    private static final ExecutorService executor = Executors.newFixedThreadPool(3);
+    private static final java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors
+            .newFixedThreadPool(3);
 
     // Callback interface for async stats fetching
     public interface StatsCallback {
@@ -56,9 +86,12 @@ public class HypixelAPI {
      * Fetch stats asynchronously using username (Mojang API lookup)
      */
     public static void fetchStatsAsync(final String playerName, final StatsCallback callback) {
-        // Check cache first
-        if (statsCache.containsKey(playerName.toLowerCase())) {
-            callback.onStatsLoaded(statsCache.get(playerName.toLowerCase()));
+        // Check cache first (with expiration)
+        CachedStats cached = statsCache.get(playerName.toLowerCase());
+        if (cached != null && !cached.isExpired()) {
+            System.out.println("[BedwarsStats] Using cached stats for " + playerName + " (" + cached.getAgeMinutes()
+                    + " min old)");
+            callback.onStatsLoaded(cached.stats);
             return;
         }
 
@@ -91,8 +124,8 @@ public class HypixelAPI {
                 BedwarsStats stats = new BedwarsStats(playerName, uuid);
                 stats.parseFromJson(response);
 
-                // Cache the result
-                statsCache.put(playerName.toLowerCase(), stats);
+                // Cache the result with timestamp
+                statsCache.put(playerName.toLowerCase(), new CachedStats(stats));
 
                 callback.onStatsLoaded(stats);
 
@@ -108,9 +141,12 @@ public class HypixelAPI {
      * Fetch stats asynchronously using pre-known UUID (skips Mojang lookup)
      */
     public static void fetchStatsWithUuid(final String playerName, final String uuid, final StatsCallback callback) {
-        // Check cache first
-        if (statsCache.containsKey(playerName.toLowerCase())) {
-            callback.onStatsLoaded(statsCache.get(playerName.toLowerCase()));
+        // Check cache first (with expiration)
+        CachedStats cached = statsCache.get(playerName.toLowerCase());
+        if (cached != null && !cached.isExpired()) {
+            System.out.println("[BedwarsStats] Using cached stats for " + playerName + " (" + cached.getAgeMinutes()
+                    + " min old)");
+            callback.onStatsLoaded(cached.stats);
             return;
         }
 
@@ -140,8 +176,8 @@ public class HypixelAPI {
                     BedwarsStats stats = new BedwarsStats(playerName, uuid);
                     stats.parseFromJson(response);
 
-                    // Cache the result
-                    statsCache.put(playerName.toLowerCase(), stats);
+                    // Cache the result with timestamp
+                    statsCache.put(playerName.toLowerCase(), new CachedStats(stats));
 
                     callback.onStatsLoaded(stats);
 
@@ -205,9 +241,41 @@ public class HypixelAPI {
     }
 
     /**
+     * Check and update rate limit before making a request
+     * Returns true if request is allowed, false if rate limited
+     */
+    private static boolean checkRateLimit() {
+        long now = System.currentTimeMillis();
+
+        // Remove old timestamps outside the window
+        java.util.Iterator<Long> iter = requestTimestamps.iterator();
+        while (iter.hasNext()) {
+            if (now - iter.next() > RATE_LIMIT_WINDOW_MS) {
+                iter.remove();
+            }
+        }
+
+        // Check if we're at the limit
+        if (requestTimestamps.size() >= RATE_LIMIT_MAX) {
+            rateLimitedRequests++;
+            return false;
+        }
+
+        // Record this request
+        requestTimestamps.add(now);
+        return true;
+    }
+
+    /**
      * Fetch player stats from Hypixel API
      */
     private static String fetchHypixelStats(String uuid) {
+        // Check rate limit
+        if (!checkRateLimit()) {
+            System.out.println("[BedwarsStats] Rate limited! Please wait before making more requests.");
+            return null;
+        }
+
         try {
             String urlString = HYPIXEL_API_URL + "?key=" + API_KEY + "&uuid=" + uuid;
             URL url = new URL(urlString);
@@ -217,6 +285,11 @@ public class HypixelAPI {
             conn.setReadTimeout(5000);
 
             int responseCode = conn.getResponseCode();
+            if (responseCode == 429) {
+                System.out.println("[BedwarsStats] Hypixel API rate limit reached (429)");
+                rateLimitedRequests++;
+                return null;
+            }
             if (responseCode != 200) {
                 System.out.println("[BedwarsStats] Hypixel API returned: " + responseCode);
                 return null;
@@ -274,12 +347,53 @@ public class HypixelAPI {
     public static void clearCache() {
         statsCache.clear();
         uuidCache.clear();
+        rateLimitedRequests = 0;
     }
 
     /**
-     * Get cached stats for a player (or null if not cached)
+     * Get cached stats for a player (or null if not cached/expired)
      */
     public static BedwarsStats getCachedStats(String playerName) {
-        return statsCache.get(playerName.toLowerCase());
+        CachedStats cached = statsCache.get(playerName.toLowerCase());
+        if (cached != null && !cached.isExpired()) {
+            return cached.stats;
+        }
+        return null;
+    }
+
+    /**
+     * Get cache and rate limit status for /bwstats status command
+     */
+    public static String getCacheStatus() {
+        int cacheSize = statsCache.size();
+        int validCacheEntries = 0;
+        long oldestAge = 0;
+
+        for (CachedStats cached : statsCache.values()) {
+            if (!cached.isExpired()) {
+                validCacheEntries++;
+            }
+            long age = cached.getAgeMinutes();
+            if (age > oldestAge) {
+                oldestAge = age;
+            }
+        }
+
+        // Clean old rate limit timestamps
+        long now = System.currentTimeMillis();
+        int recentRequests = 0;
+        for (Long ts : requestTimestamps) {
+            if (now - ts <= RATE_LIMIT_WINDOW_MS) {
+                recentRequests++;
+            }
+        }
+
+        return String.format(
+                "Cache: %d entries (%d valid, oldest %d min)\n" +
+                        "Rate: %d/%d requests in last minute\n" +
+                        "Rate limited: %d requests blocked",
+                cacheSize, validCacheEntries, oldestAge,
+                recentRequests, RATE_LIMIT_MAX,
+                rateLimitedRequests);
     }
 }
