@@ -1,14 +1,14 @@
 [
 {
-  "modid": "bedwarsstats",
+  "modid": "bedwars",
   "name": "BedwarsStats",
-  "description": "Tracks Bedwars stats in-game.",
+  "description": "Displays Hypixel Bedwars player statistics in-game with threat level indicators, blacklist system, and encounter history tracking.",
   "version": "${version}",
   "mcversion": "${mcversion}",
   "url": "https://github.com/1mshy/bedwars",
   "updateUrl": "https://github.com/1mshy/bedwars",
   "authorList": ["Luca Lapenna"],
-  "credits": "The minecraft community",
+  "credits": "The Minecraft community",
   "logoFile": "",
   "screenshots": [],
   "dependencies": []

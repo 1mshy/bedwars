@@ -25,6 +25,7 @@ public class ModConfig {
     private static double highFkdrThreshold = 6.0;
     private static boolean chatAlertsEnabled = true;
     private static boolean blacklistAlertsEnabled = true;
+    private static boolean historyAlertsEnabled = true;
 
     /**
      * Initialize the configuration file
@@ -131,6 +132,13 @@ public class ModConfig {
                     "Show alert when blacklisted player is detected");
             blacklistAlertsEnabled = blacklistAlertsProp.getBoolean();
 
+            Property historyAlertsProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "historyAlertsEnabled",
+                    true,
+                    "Show alert when you have played against a player before");
+            historyAlertsEnabled = historyAlertsProp.getBoolean();
+
             // Apply the loaded API key to HypixelAPI
             if (apiKey != null && !apiKey.isEmpty()) {
                 HypixelAPI.setApiKey(apiKey);
@@ -197,5 +205,9 @@ public class ModConfig {
 
     public static boolean isBlacklistAlertsEnabled() {
         return blacklistAlertsEnabled;
+    }
+
+    public static boolean isHistoryAlertsEnabled() {
+        return historyAlertsEnabled;
     }
 }

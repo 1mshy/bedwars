@@ -2,6 +2,11 @@ package com.example.examplemod;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
+import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.client.renderer.Tessellator;
+import net.minecraft.client.renderer.WorldRenderer;
+import net.minecraft.client.renderer.entity.RenderManager;
+import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.CommandException;
 import net.minecraft.command.ICommandSender;
@@ -11,11 +16,14 @@ import net.minecraft.util.EnumChatFormatting;
 import net.minecraftforge.client.ClientCommandHandler;
 import net.minecraftforge.client.event.ClientChatReceivedEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
+import net.minecraftforge.client.event.RenderLivingEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.EntityJoinWorldEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+
+import org.lwjgl.opengl.GL11;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -189,10 +197,30 @@ public class ExampleMod {
             entry.isBlacklisted = true;
         }
 
-        // Check encounter history
+        // Check encounter history and notify in chat
         if (db.hasPlayedBefore(playerName)) {
             entry.encounterCount = db.getEncounterCount(playerName);
             entry.winLossRecord = db.getWinLossRecord(playerName);
+
+            // Show history notification in chat
+            if (ModConfig.isHistoryAlertsEnabled() && mc.thePlayer != null) {
+                int wins = entry.winLossRecord[0];
+                int losses = entry.winLossRecord[1];
+                String recordColor;
+                if (wins > losses) {
+                    recordColor = EnumChatFormatting.GREEN.toString();
+                } else if (losses > wins) {
+                    recordColor = EnumChatFormatting.RED.toString();
+                } else {
+                    recordColor = EnumChatFormatting.YELLOW.toString();
+                }
+
+                mc.thePlayer.addChatMessage(new ChatComponentText(
+                        EnumChatFormatting.AQUA + "📜 HISTORY: " +
+                                EnumChatFormatting.WHITE + playerName +
+                                EnumChatFormatting.GRAY + " - Played " + entry.encounterCount + "x | Record: " +
+                                recordColor + wins + "W-" + losses + "L"));
+            }
         }
 
         // Fetch stats asynchronously
@@ -289,6 +317,103 @@ public class ExampleMod {
                 y += lineHeight;
             }
         }
+    }
+
+    /**
+     * Renders threat level above player nametags when they have cached stats
+     */
+    @SubscribeEvent
+    public void onRenderLiving(RenderLivingEvent.Specials.Post event) {
+        // Only render for players
+        if (!(event.entity instanceof EntityPlayer)) {
+            return;
+        }
+
+        EntityPlayer player = (EntityPlayer) event.entity;
+        Minecraft mc = Minecraft.getMinecraft();
+
+        // Don't render for self
+        if (mc.thePlayer != null && player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+            return;
+        }
+
+        // Check if we have cached stats for this player
+        BedwarsStats stats = HypixelAPI.getCachedStats(player.getName());
+        if (stats == null || !stats.isLoaded()) {
+            return;
+        }
+
+        // Get threat level and color
+        BedwarsStats.ThreatLevel threat = stats.getThreatLevel();
+        if (threat == BedwarsStats.ThreatLevel.UNKNOWN) {
+            return;
+        }
+
+        // Create display text with threat info
+        String threatText = stats.getThreatColor() + "[" + threat.name() + "] " +
+                EnumChatFormatting.WHITE + stats.getStars() + "⭐ " +
+                EnumChatFormatting.YELLOW + String.format("%.1f", stats.getFkdr()) + " FKDR";
+
+        // Render the threat level above the nametag
+        renderThreatLabel(player, threatText, event.x, event.y, event.z);
+    }
+
+    /**
+     * Renders a label above the player's nametag
+     */
+    private void renderThreatLabel(EntityPlayer player, String text, double x, double y, double z) {
+        Minecraft mc = Minecraft.getMinecraft();
+        FontRenderer fontRenderer = mc.fontRendererObj;
+        RenderManager renderManager = mc.getRenderManager();
+
+        // Calculate distance for visibility check
+        double distance = player.getDistanceSqToEntity(mc.thePlayer);
+        if (distance > 4096.0D) { // 64 blocks squared
+            return;
+        }
+
+        // Height offset - above the nametag (player height + nametag offset + extra)
+        float heightOffset = player.height + 0.5F + 0.3F;
+
+        GlStateManager.pushMatrix();
+        GlStateManager.translate((float) x, (float) y + heightOffset, (float) z);
+        GlStateManager.rotate(-renderManager.playerViewY, 0.0F, 1.0F, 0.0F);
+        GlStateManager.rotate(renderManager.playerViewX, 1.0F, 0.0F, 0.0F);
+
+        float scale = 0.016666668F * 1.5F; // Slightly larger than nametag
+        GlStateManager.scale(-scale, -scale, scale);
+
+        GlStateManager.disableLighting();
+        GlStateManager.depthMask(false);
+        GlStateManager.disableDepth();
+        GlStateManager.enableBlend();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+
+        Tessellator tessellator = Tessellator.getInstance();
+        WorldRenderer worldRenderer = tessellator.getWorldRenderer();
+
+        int textWidth = fontRenderer.getStringWidth(text);
+        int halfWidth = textWidth / 2;
+
+        // Draw background
+        GlStateManager.disableTexture2D();
+        worldRenderer.begin(7, DefaultVertexFormats.POSITION_COLOR);
+        worldRenderer.pos(-halfWidth - 1, -1, 0.0D).color(0.0F, 0.0F, 0.0F, 0.25F).endVertex();
+        worldRenderer.pos(-halfWidth - 1, 8, 0.0D).color(0.0F, 0.0F, 0.0F, 0.25F).endVertex();
+        worldRenderer.pos(halfWidth + 1, 8, 0.0D).color(0.0F, 0.0F, 0.0F, 0.25F).endVertex();
+        worldRenderer.pos(halfWidth + 1, -1, 0.0D).color(0.0F, 0.0F, 0.0F, 0.25F).endVertex();
+        tessellator.draw();
+        GlStateManager.enableTexture2D();
+
+        // Draw text
+        fontRenderer.drawString(text, -halfWidth, 0, 0xFFFFFFFF);
+
+        GlStateManager.enableDepth();
+        GlStateManager.depthMask(true);
+        GlStateManager.enableLighting();
+        GlStateManager.disableBlend();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        GlStateManager.popMatrix();
     }
 
     /**
