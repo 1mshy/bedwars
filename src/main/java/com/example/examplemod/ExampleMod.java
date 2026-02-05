@@ -11,6 +11,7 @@ import net.minecraft.command.CommandBase;
 import net.minecraft.command.CommandException;
 import net.minecraft.command.ICommandSender;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.util.BlockPos;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.EnumChatFormatting;
 import net.minecraftforge.client.ClientCommandHandler;
@@ -22,12 +23,15 @@ import net.minecraftforge.event.entity.EntityJoinWorldEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+import net.minecraftforge.fml.common.gameevent.TickEvent;
 
 import org.lwjgl.opengl.GL11;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
 @Mod(modid = ExampleMod.MODID, version = ExampleMod.VERSION, guiFactory = "com.example.examplemod.ModGuiFactory")
 public class ExampleMod {
@@ -40,6 +44,28 @@ public class ExampleMod {
 
     // Flag to track if we're in a Bedwars lobby
     private static boolean inBedwarsLobby = false;
+
+    // Bed proximity warning system
+    private static BlockPos playerBedPosition = null;
+    private static final int BED_PROXIMITY_WARNING_DISTANCE = 15;
+    private static final long BED_WARNING_COOLDOWN = 5000; // 5 seconds between warnings per player
+    private static final Map<String, Long> lastBedWarningTime = new HashMap<String, Long>();
+
+    // Autoplay system
+    private static boolean autoplayEnabled = false;
+    private static String autoplayMode = "ones"; // ones, twos, threes, fours
+    private static long autoplayCheckTime = 0; // When to check for threats after joining lobby
+    private static final long AUTOPLAY_CHECK_DELAY = 5000; // 5 seconds delay to let stats load
+    private static boolean autoplayPendingCheck = false;
+
+    // Map of game modes to play commands
+    private static final Map<String, String> GAME_MODE_COMMANDS = new HashMap<String, String>();
+    static {
+        GAME_MODE_COMMANDS.put("ones", "/play bedwars_eight_one");
+        GAME_MODE_COMMANDS.put("twos", "/play bedwars_eight_two");
+        GAME_MODE_COMMANDS.put("threes", "/play bedwars_four_three");
+        GAME_MODE_COMMANDS.put("fours", "/play bedwars_four_four");
+    }
 
     @Mod.EventHandler
     public void preInit(net.minecraftforge.fml.common.event.FMLPreInitializationEvent event) {
@@ -78,8 +104,26 @@ public class ExampleMod {
                 synchronized (recentJoins) {
                     recentJoins.clear();
                 }
+                // Record player's spawn position as bed location (spawn is always near bed in
+                // Bedwars)
+                if (mc.thePlayer != null) {
+                    playerBedPosition = mc.thePlayer.getPosition();
+                    lastBedWarningTime.clear();
+                    System.out.println("[BedwarsStats] Bed position recorded at: " + playerBedPosition);
+                }
                 PlayerDatabase.getInstance().clearCurrentGame();
                 System.out.println("[BedwarsStats] Entered Bedwars lobby - stat tracking activated!");
+
+                // Schedule autoplay check if autoplay is enabled
+                if (autoplayEnabled) {
+                    autoplayCheckTime = System.currentTimeMillis() + AUTOPLAY_CHECK_DELAY;
+                    autoplayPendingCheck = true;
+                    if (mc.thePlayer != null) {
+                        mc.thePlayer.addChatMessage(new ChatComponentText(
+                                EnumChatFormatting.GOLD + "[Autoplay] " +
+                                        EnumChatFormatting.YELLOW + "Checking lobby for threats in 5 seconds..."));
+                    }
+                }
             }
         }
 
@@ -97,6 +141,8 @@ public class ExampleMod {
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.WIN);
                 PlayerDatabase.getInstance().clearCurrentGame();
                 inBedwarsLobby = false;
+                playerBedPosition = null;
+                lastBedWarningTime.clear();
                 synchronized (recentJoins) {
                     recentJoins.clear();
                 }
@@ -113,6 +159,8 @@ public class ExampleMod {
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.LOSS);
                 PlayerDatabase.getInstance().clearCurrentGame();
                 inBedwarsLobby = false;
+                playerBedPosition = null;
+                lastBedWarningTime.clear();
                 synchronized (recentJoins) {
                     recentJoins.clear();
                 }
@@ -124,6 +172,8 @@ public class ExampleMod {
         if (message.contains("You left.") || message.contains("Sending you to")) {
             if (inBedwarsLobby) {
                 inBedwarsLobby = false;
+                playerBedPosition = null;
+                lastBedWarningTime.clear();
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.UNKNOWN);
                 PlayerDatabase.getInstance().clearCurrentGame();
                 synchronized (recentJoins) {
@@ -320,6 +370,158 @@ public class ExampleMod {
     }
 
     /**
+     * Check for enemies near the player's bed every tick
+     */
+    @SubscribeEvent
+    public void onClientTick(TickEvent.ClientTickEvent event) {
+        // Only process at the start of each tick
+        if (event.phase != TickEvent.Phase.START) {
+            return;
+        }
+
+        Minecraft mc = Minecraft.getMinecraft();
+
+        // Autoplay threat check
+        if (autoplayEnabled && autoplayPendingCheck && inBedwarsLobby) {
+            if (System.currentTimeMillis() >= autoplayCheckTime) {
+                autoplayPendingCheck = false;
+                performAutoplayCheck(mc);
+            }
+        }
+
+        // Only check when in a Bedwars game and we have a bed position
+        if (!inBedwarsLobby || playerBedPosition == null) {
+            return;
+        }
+
+        if (mc.theWorld == null || mc.thePlayer == null) {
+            return;
+        }
+
+        // Check if bed proximity warnings are enabled
+        if (!ModConfig.isBedProximityAlertsEnabled()) {
+            return;
+        }
+
+        long currentTime = System.currentTimeMillis();
+
+        // Check all players in the world
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            // Skip yourself
+            if (player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+                continue;
+            }
+
+            String playerName = player.getName();
+
+            // Calculate distance to bed (using BlockPos distance)
+            double distance = Math.sqrt(player.getPosition().distanceSq(playerBedPosition));
+
+            // Check if within warning distance
+            if (distance <= BED_PROXIMITY_WARNING_DISTANCE) {
+                // Check cooldown for this specific player
+                Long lastWarning = lastBedWarningTime.get(playerName);
+                if (lastWarning == null || (currentTime - lastWarning) >= BED_WARNING_COOLDOWN) {
+                    // Send warning to player
+                    String warningMessage = EnumChatFormatting.DARK_RED + "⚠ BED WARNING: " +
+                            EnumChatFormatting.RED + playerName +
+                            EnumChatFormatting.YELLOW + " is " + (int) distance + " blocks from your bed!";
+                    mc.thePlayer.addChatMessage(new ChatComponentText(warningMessage));
+
+                    // Update cooldown
+                    lastBedWarningTime.put(playerName, currentTime);
+                }
+            }
+        }
+    }
+
+    /**
+     * Perform autoplay threat check - requeue if dangerous players found
+     */
+    private void performAutoplayCheck(Minecraft mc) {
+        if (mc.theWorld == null || mc.thePlayer == null) {
+            return;
+        }
+
+        String maxThreatLevel = ModConfig.getAutoplayMaxThreatLevel();
+        List<String> threatPlayers = new ArrayList<String>();
+
+        // Check all players in the world
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            // Skip yourself
+            if (player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+                continue;
+            }
+
+            String playerName = player.getName();
+            BedwarsStats stats = HypixelAPI.getCachedStats(playerName);
+
+            if (stats != null && stats.isLoaded()) {
+                BedwarsStats.ThreatLevel threat = stats.getThreatLevel();
+                boolean isThreat = false;
+
+                if (maxThreatLevel.equals("HIGH")) {
+                    // Requeue if HIGH or EXTREME
+                    isThreat = (threat == BedwarsStats.ThreatLevel.HIGH ||
+                            threat == BedwarsStats.ThreatLevel.EXTREME);
+                } else if (maxThreatLevel.equals("EXTREME")) {
+                    // Only requeue if EXTREME
+                    isThreat = (threat == BedwarsStats.ThreatLevel.EXTREME);
+                }
+
+                if (isThreat) {
+                    threatPlayers.add(playerName + " (" + threat.name() + ")");
+                }
+            }
+        }
+
+        if (!threatPlayers.isEmpty()) {
+            // Threats found - requeue
+            mc.thePlayer.addChatMessage(new ChatComponentText(
+                    EnumChatFormatting.GOLD + "[Autoplay] " +
+                            EnumChatFormatting.RED + "Threats detected: " +
+                            EnumChatFormatting.YELLOW + String.join(", ", threatPlayers)));
+            mc.thePlayer.addChatMessage(new ChatComponentText(
+                    EnumChatFormatting.GOLD + "[Autoplay] " +
+                            EnumChatFormatting.YELLOW + "Requeuing..."));
+
+            // Leave to lobby first, then requeue
+            inBedwarsLobby = false;
+            synchronized (recentJoins) {
+                recentJoins.clear();
+            }
+
+            // Send lobby command, then queue command after a short delay
+            mc.thePlayer.sendChatMessage("/lobby");
+
+            // Schedule requeue after a short delay (use the next tick check)
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Thread.sleep(1500); // Wait 1.5 seconds for lobby transition
+                        Minecraft mc = Minecraft.getMinecraft();
+                        if (mc.thePlayer != null && autoplayEnabled) {
+                            String playCommand = GAME_MODE_COMMANDS.get(autoplayMode);
+                            if (playCommand != null) {
+                                mc.thePlayer.sendChatMessage(playCommand);
+                            }
+                        }
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }).start();
+        } else {
+            // No threats - good lobby found!
+            mc.thePlayer.addChatMessage(new ChatComponentText(
+                    EnumChatFormatting.GOLD + "[Autoplay] " +
+                            EnumChatFormatting.GREEN + "No threats detected! Stopping autoplay."));
+            autoplayEnabled = false;
+        }
+    }
+
+    /**
      * Renders threat level above player nametags when they have cached stats
      */
     @SubscribeEvent
@@ -462,6 +664,7 @@ public class ExampleMod {
                 sendMessage(sender, "/bw lookup <player> - Look up a player's stats");
                 sendMessage(sender, "/bw all - Check stats for everyone in the lobby");
                 sendMessage(sender, "/bw info - Show threats and history players in lobby");
+                sendMessage(sender, "/bw autoplay <ones|twos|threes|fours|stop> - Auto-queue until safe lobby");
                 sendMessage(sender, "/bw blacklist <add|remove|list> [player] [reason] - Manage blacklist");
                 sendMessage(sender, "/bw history [player] - View encounter history");
                 sendMessage(sender, "/bw status - Show cache and rate limit info");
@@ -600,14 +803,15 @@ public class ExampleMod {
                 sendMessage(sender, String.format("History: %d unique players", db.getHistorySize()));
                 sendMessage(sender, "In Bedwars lobby: " + (inBedwarsLobby ? "Yes" : "No"));
 
-            } else if (subCommand.equals("clear"))
-
-            {
+            } else if (subCommand.equals("clear")) {
                 HypixelAPI.clearCache();
                 synchronized (recentJoins) {
                     recentJoins.clear();
                 }
                 sendMessage(sender, EnumChatFormatting.GREEN + "Cache cleared!");
+
+            } else if (subCommand.equals("autoplay")) {
+                handleAutoplayCommand(sender, args);
 
             } else {
                 sendMessage(sender, EnumChatFormatting.RED + "Unknown command. Use /bw for help.");
@@ -619,7 +823,7 @@ public class ExampleMod {
                 net.minecraft.util.BlockPos pos) {
             if (args.length == 1) {
                 // Autocomplete subcommands
-                return getListOfStringsMatchingLastWord(args, "setkey", "lookup", "all", "info", "blacklist", "history",
+                return getListOfStringsMatchingLastWord(args, "setkey", "lookup", "all", "info", "autoplay", "blacklist", "history",
                         "status", "clear");
             }
 
@@ -641,6 +845,11 @@ public class ExampleMod {
                 // For blacklist, suggest add/remove/list
                 if (subCommand.equals("blacklist")) {
                     return getListOfStringsMatchingLastWord(args, "add", "remove", "list");
+                }
+
+                // For autoplay, suggest game modes
+                if (subCommand.equals("autoplay")) {
+                    return getListOfStringsMatchingLastWord(args, "ones", "twos", "threes", "fours", "stop");
                 }
             }
 
@@ -832,6 +1041,59 @@ public class ExampleMod {
                                 : EnumChatFormatting.GRAY.toString());
                 sendMessage(sender, outcomeColor + e.outcome.name() +
                         EnumChatFormatting.GRAY + " (" + daysAgo + " days ago)");
+            }
+        }
+
+        private void handleAutoplayCommand(ICommandSender sender, String[] args) {
+            if (args.length < 2) {
+                sendMessage(sender, EnumChatFormatting.RED + "Usage: /bw autoplay <ones|twos|threes|fours|stop>");
+                sendMessage(sender, EnumChatFormatting.GRAY + "Autoplay will auto-queue until finding a lobby without threats.");
+                sendMessage(sender, EnumChatFormatting.GRAY + "Current max threat level: " + ModConfig.getAutoplayMaxThreatLevel());
+                return;
+            }
+
+            String mode = args[1].toLowerCase();
+
+            if (mode.equals("stop")) {
+                if (autoplayEnabled) {
+                    autoplayEnabled = false;
+                    autoplayPendingCheck = false;
+                    sendMessage(sender, EnumChatFormatting.GOLD + "[Autoplay] " +
+                            EnumChatFormatting.RED + "Autoplay stopped.");
+                } else {
+                    sendMessage(sender, EnumChatFormatting.YELLOW + "Autoplay is not currently running.");
+                }
+                return;
+            }
+
+            // Check if valid game mode
+            if (!GAME_MODE_COMMANDS.containsKey(mode)) {
+                sendMessage(sender, EnumChatFormatting.RED + "Invalid mode. Use: ones, twos, threes, fours, or stop");
+                return;
+            }
+
+            // Check if API key is set
+            if (!HypixelAPI.hasApiKey()) {
+                sendMessage(sender, EnumChatFormatting.RED + "No API key set. Use /bw setkey <key> first.");
+                return;
+            }
+
+            // Enable autoplay
+            autoplayEnabled = true;
+            autoplayMode = mode;
+            autoplayPendingCheck = false;
+
+            String playCommand = GAME_MODE_COMMANDS.get(mode);
+            sendMessage(sender, EnumChatFormatting.GOLD + "[Autoplay] " +
+                    EnumChatFormatting.GREEN + "Started autoplay for " + mode + "!");
+            sendMessage(sender, EnumChatFormatting.GRAY + "Will requeue if " +
+                    ModConfig.getAutoplayMaxThreatLevel() + "+ threat players detected.");
+            sendMessage(sender, EnumChatFormatting.GRAY + "Use /bw autoplay stop to cancel.");
+
+            // Send the queue command
+            Minecraft mc = Minecraft.getMinecraft();
+            if (mc.thePlayer != null) {
+                mc.thePlayer.sendChatMessage(playCommand);
             }
         }
 

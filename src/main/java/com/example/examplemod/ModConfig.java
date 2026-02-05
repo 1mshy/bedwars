@@ -26,6 +26,8 @@ public class ModConfig {
     private static boolean chatAlertsEnabled = true;
     private static boolean blacklistAlertsEnabled = true;
     private static boolean historyAlertsEnabled = true;
+    private static boolean bedProximityAlertsEnabled = true;
+    private static String autoplayMaxThreatLevel = "HIGH"; // HIGH or EXTREME
 
     /**
      * Initialize the configuration file
@@ -139,6 +141,25 @@ public class ModConfig {
                     "Show alert when you have played against a player before");
             historyAlertsEnabled = historyAlertsProp.getBoolean();
 
+            Property bedProximityAlertsProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "bedProximityAlertsEnabled",
+                    true,
+                    "Show warning when enemy player is within 15 blocks of your bed");
+            bedProximityAlertsEnabled = bedProximityAlertsProp.getBoolean();
+
+            // Autoplay settings
+            Property autoplayMaxThreatProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "autoplayMaxThreatLevel",
+                    "HIGH",
+                    "Maximum threat level to tolerate when autoplay is enabled. Use HIGH or EXTREME.");
+            autoplayMaxThreatLevel = autoplayMaxThreatProp.getString();
+            // Validate the value
+            if (!autoplayMaxThreatLevel.equals("HIGH") && !autoplayMaxThreatLevel.equals("EXTREME")) {
+                autoplayMaxThreatLevel = "HIGH";
+            }
+
             // Apply the loaded API key to HypixelAPI
             if (apiKey != null && !apiKey.isEmpty()) {
                 HypixelAPI.setApiKey(apiKey);
@@ -209,5 +230,13 @@ public class ModConfig {
 
     public static boolean isHistoryAlertsEnabled() {
         return historyAlertsEnabled;
+    }
+
+    public static boolean isBedProximityAlertsEnabled() {
+        return bedProximityAlertsEnabled;
+    }
+
+    public static String getAutoplayMaxThreatLevel() {
+        return autoplayMaxThreatLevel;
     }
 }
