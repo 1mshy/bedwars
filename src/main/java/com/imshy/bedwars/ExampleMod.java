@@ -29,6 +29,8 @@ import net.minecraftforge.fml.common.gameevent.TickEvent;
 import org.lwjgl.opengl.GL11;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -39,6 +41,8 @@ import net.minecraft.entity.item.EntityItem;
 import net.minecraft.init.Blocks;
 import net.minecraft.init.Items;
 import net.minecraft.block.Block;
+import net.minecraft.scoreboard.ScorePlayerTeam;
+import net.minecraft.scoreboard.Team;
 
 @Mod(modid = ExampleMod.MODID, version = ExampleMod.VERSION, guiFactory = "com.imshy.bedwars.ModGuiFactory")
 public class ExampleMod {
@@ -90,6 +94,9 @@ public class ExampleMod {
     private static final Map<BlockPos, GeneratorEntry> trackedGenerators = new HashMap<BlockPos, GeneratorEntry>();
     private static long lastGeneratorScan = 0;
     private static final long GENERATOR_SCAN_INTERVAL = 1000; // Scan every 1 second (20 ticks)
+
+    // Team danger summary
+    private static final int TEAM_DANGER_MIN_TEAMS = 2;
 
     @Mod.EventHandler
     public void preInit(net.minecraftforge.fml.common.event.FMLPreInitializationEvent event) {
@@ -358,8 +365,11 @@ public class ExampleMod {
             }
         }
 
-        if (recentJoins.isEmpty())
+        List<TeamDangerEntry> teamDangerSummaries = buildTeamDangerSummary(mc);
+
+        if (recentJoins.isEmpty() && teamDangerSummaries.isEmpty()) {
             return;
+        }
 
         FontRenderer fontRenderer = mc.fontRendererObj;
 
@@ -367,28 +377,46 @@ public class ExampleMod {
         int y = 50;
         int lineHeight = 12;
 
-        // Draw header
-        fontRenderer.drawStringWithShadow(
-                EnumChatFormatting.GOLD + "Recent Players:",
-                x, y, 0xFFFFFF);
-        y += lineHeight + 2;
+        if (!recentJoins.isEmpty()) {
+            // Draw recent players header
+            fontRenderer.drawStringWithShadow(
+                    EnumChatFormatting.GOLD + "Recent Players:",
+                    x, y, 0xFFFFFF);
+            y += lineHeight + 2;
 
-        // Draw player names with stats
-        synchronized (recentJoins) {
-            for (PlayerJoinEntry entry : recentJoins) {
-                String displayText;
+            // Draw player names with stats
+            synchronized (recentJoins) {
+                for (PlayerJoinEntry entry : recentJoins) {
+                    String displayText;
 
-                if (entry.stats != null && entry.stats.isLoaded()) {
-                    displayText = entry.stats.getThreatColor() + entry.playerName + " " +
-                            entry.stats.getDisplayString();
-                } else if (entry.stats != null && entry.stats.hasError()) {
-                    displayText = EnumChatFormatting.GRAY + entry.playerName + " [Error]";
-                } else {
-                    displayText = EnumChatFormatting.WHITE + entry.playerName +
-                            EnumChatFormatting.GRAY + " [Loading...]";
+                    if (entry.stats != null && entry.stats.isLoaded()) {
+                        displayText = entry.stats.getThreatColor() + entry.playerName + " " +
+                                entry.stats.getDisplayString();
+                    } else if (entry.stats != null && entry.stats.hasError()) {
+                        displayText = EnumChatFormatting.GRAY + entry.playerName + " [Error]";
+                    } else {
+                        displayText = EnumChatFormatting.WHITE + entry.playerName +
+                                EnumChatFormatting.GRAY + " [Loading...]";
+                    }
+
+                    fontRenderer.drawStringWithShadow(displayText, x, y, 0xFFFFFF);
+                    y += lineHeight;
                 }
+            }
 
-                fontRenderer.drawStringWithShadow(displayText, x, y, 0xFFFFFF);
+            if (!teamDangerSummaries.isEmpty()) {
+                y += 4;
+            }
+        }
+
+        if (!teamDangerSummaries.isEmpty()) {
+            fontRenderer.drawStringWithShadow(
+                    EnumChatFormatting.RED + "Team Danger:",
+                    x, y, 0xFFFFFF);
+            y += lineHeight + 2;
+
+            for (TeamDangerEntry summary : teamDangerSummaries) {
+                fontRenderer.drawStringWithShadow(formatTeamDangerLine(summary), x, y, 0xFFFFFF);
                 y += lineHeight;
             }
         }
@@ -596,6 +624,163 @@ public class ExampleMod {
         bedDetectionStartTime = 0;
         lastBedDetectionAttempt = 0;
         lastBedWarningTime.clear();
+    }
+
+    /**
+     * Builds a per-team threat summary using cached Bedwars stats.
+     */
+    private static List<TeamDangerEntry> buildTeamDangerSummary(Minecraft mc) {
+        if (!inBedwarsLobby || !ModConfig.isTeamDangerSummaryEnabled() || mc == null || mc.theWorld == null
+                || mc.thePlayer == null) {
+            return new ArrayList<TeamDangerEntry>();
+        }
+
+        String ownTeamKey = null;
+        Team ownTeam = mc.thePlayer.getTeam();
+        if (ownTeam instanceof ScorePlayerTeam) {
+            ownTeamKey = ((ScorePlayerTeam) ownTeam).getRegisteredName();
+        }
+
+        Map<String, TeamDangerEntry> byTeam = new HashMap<String, TeamDangerEntry>();
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            Team team = player.getTeam();
+            if (!(team instanceof ScorePlayerTeam)) {
+                continue;
+            }
+
+            ScorePlayerTeam scoreTeam = (ScorePlayerTeam) team;
+            String teamKey = scoreTeam.getRegisteredName();
+            if (teamKey == null) {
+                continue;
+            }
+
+            TeamDangerEntry summary = byTeam.get(teamKey);
+            if (summary == null) {
+                summary = new TeamDangerEntry(
+                        getTeamDisplayName(scoreTeam),
+                        getTeamColorPrefix(scoreTeam),
+                        teamKey.equals(ownTeamKey));
+                byTeam.put(teamKey, summary);
+            }
+
+            summary.totalPlayers++;
+
+            BedwarsStats stats = HypixelAPI.getCachedStats(player.getName());
+            if (stats == null || !stats.isLoaded()) {
+                continue;
+            }
+
+            double score = threatToScore(stats.getThreatLevel());
+            if (score <= 0.0) {
+                continue;
+            }
+
+            summary.playersWithKnownThreat++;
+            summary.totalThreatScore += score;
+        }
+
+        if (byTeam.size() < TEAM_DANGER_MIN_TEAMS) {
+            return new ArrayList<TeamDangerEntry>();
+        }
+
+        List<TeamDangerEntry> summaries = new ArrayList<TeamDangerEntry>(byTeam.values());
+        Collections.sort(summaries, new Comparator<TeamDangerEntry>() {
+            @Override
+            public int compare(TeamDangerEntry a, TeamDangerEntry b) {
+                double avgA = a.getAverageThreatScore();
+                double avgB = b.getAverageThreatScore();
+                if (avgA != avgB) {
+                    return Double.compare(avgB, avgA); // Higher danger first
+                }
+                return a.teamName.compareToIgnoreCase(b.teamName);
+            }
+        });
+
+        return summaries;
+    }
+
+    private static String getTeamDisplayName(ScorePlayerTeam team) {
+        String prefix = team.getColorPrefix();
+        if (prefix != null && !prefix.trim().isEmpty()) {
+            String stripped = EnumChatFormatting.getTextWithoutFormattingCodes(prefix);
+            if (stripped != null) {
+                stripped = stripped.replace("[", "").replace("]", "").trim();
+                if (!stripped.isEmpty()) {
+                    return stripped;
+                }
+            }
+        }
+        return team.getRegisteredName();
+    }
+
+    private static String getTeamColorPrefix(ScorePlayerTeam team) {
+        String prefix = team.getColorPrefix();
+        if (prefix == null || prefix.isEmpty()) {
+            return EnumChatFormatting.GRAY.toString();
+        }
+        return prefix;
+    }
+
+    private static String formatTeamDangerLine(TeamDangerEntry summary) {
+        String dangerLabel = summary.playersWithKnownThreat > 0
+                ? averageThreatLabel(summary.getAverageThreatScore())
+                : "UNKNOWN";
+        String dangerColor = dangerLabelColor(dangerLabel);
+
+        String ownTeamSuffix = summary.isOwnTeam
+                ? EnumChatFormatting.AQUA + " (You)"
+                : "";
+
+        return summary.teamColor + summary.teamName +
+                ownTeamSuffix +
+                EnumChatFormatting.GRAY + " - " +
+                dangerColor + "Avg " + dangerLabel +
+                EnumChatFormatting.GRAY + " (" +
+                summary.playersWithKnownThreat + "/" + summary.totalPlayers + " known)";
+    }
+
+    private static double threatToScore(BedwarsStats.ThreatLevel threatLevel) {
+        switch (threatLevel) {
+            case LOW:
+                return 1.0;
+            case MEDIUM:
+                return 2.0;
+            case HIGH:
+                return 3.0;
+            case EXTREME:
+                return 4.0;
+            default:
+                return 0.0;
+        }
+    }
+
+    private static String averageThreatLabel(double averageScore) {
+        if (averageScore >= 3.5) {
+            return "EXTREME";
+        }
+        if (averageScore >= 2.5) {
+            return "HIGH";
+        }
+        if (averageScore >= 1.5) {
+            return "MEDIUM";
+        }
+        return "LOW";
+    }
+
+    private static String dangerLabelColor(String dangerLabel) {
+        if ("EXTREME".equals(dangerLabel)) {
+            return EnumChatFormatting.DARK_RED.toString();
+        }
+        if ("HIGH".equals(dangerLabel)) {
+            return EnumChatFormatting.RED.toString();
+        }
+        if ("MEDIUM".equals(dangerLabel)) {
+            return EnumChatFormatting.YELLOW.toString();
+        }
+        if ("LOW".equals(dangerLabel)) {
+            return EnumChatFormatting.GREEN.toString();
+        }
+        return EnumChatFormatting.GRAY.toString();
     }
 
     /**
@@ -1097,6 +1282,31 @@ public class ExampleMod {
     }
 
     /**
+     * Aggregated danger data for a Bedwars team.
+     */
+    private static class TeamDangerEntry {
+        String teamName;
+        String teamColor;
+        boolean isOwnTeam;
+        int totalPlayers;
+        int playersWithKnownThreat;
+        double totalThreatScore;
+
+        TeamDangerEntry(String teamName, String teamColor, boolean isOwnTeam) {
+            this.teamName = teamName;
+            this.teamColor = teamColor;
+            this.isOwnTeam = isOwnTeam;
+        }
+
+        double getAverageThreatScore() {
+            if (playersWithKnownThreat == 0) {
+                return 0.0;
+            }
+            return totalThreatScore / playersWithKnownThreat;
+        }
+    }
+
+    /**
      * Command handler for /bw
      */
     public static class BedwarsCommand extends CommandBase {
@@ -1342,6 +1552,7 @@ public class ExampleMod {
 
             List<String> threats = new ArrayList<String>();
             List<String> historyPlayers = new ArrayList<String>();
+            List<TeamDangerEntry> teamDangerSummaries = buildTeamDangerSummary(mc);
 
             sendMessage(sender, EnumChatFormatting.GOLD + "=== Lobby Info ===");
 
@@ -1399,6 +1610,15 @@ public class ExampleMod {
                 }
             } else {
                 sendMessage(sender, EnumChatFormatting.GREEN + "✓ No threats detected");
+            }
+
+            if (!teamDangerSummaries.isEmpty()) {
+                sendMessage(sender, EnumChatFormatting.RED + "Team Danger:");
+                for (TeamDangerEntry summary : teamDangerSummaries) {
+                    sendMessage(sender, "  " + formatTeamDangerLine(summary));
+                }
+            } else {
+                sendMessage(sender, EnumChatFormatting.GRAY + "Team danger summary unavailable (teams not assigned)");
             }
 
             // Display history players

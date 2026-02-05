@@ -30,6 +30,7 @@ public class ModConfig {
     private static boolean mapAwareBedDetectionEnabled = true;
     private static int bedScanRange = 30; // blocks
     private static int bedScanRetrySeconds = 12; // seconds
+    private static boolean teamDangerSummaryEnabled = true;
     private static boolean audioAlertsEnabled = true;
     private static boolean invisibleAudioCueEnabled = true;
     private static boolean bedDangerAudioCueEnabled = true;
@@ -189,6 +190,13 @@ public class ModConfig {
                     "How long (seconds) to keep retrying bed detection before falling back to spawn",
                     3, 30);
             bedScanRetrySeconds = bedScanRetrySecondsProp.getInt();
+
+            Property teamDangerSummaryProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "teamDangerSummaryEnabled",
+                    true,
+                    "Show per-team average danger summaries in HUD and /bw info");
+            teamDangerSummaryEnabled = teamDangerSummaryProp.getBoolean();
 
             // Autoplay settings
             Property autoplayMaxThreatProp = config.get(
@@ -381,6 +389,10 @@ public class ModConfig {
 
     public static int getBedScanRetrySeconds() {
         return bedScanRetrySeconds;
+    }
+
+    public static boolean isTeamDangerSummaryEnabled() {
+        return teamDangerSummaryEnabled;
     }
 
     public static boolean isAudioAlertsEnabled() {
