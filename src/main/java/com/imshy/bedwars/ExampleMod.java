@@ -18,6 +18,7 @@ import net.minecraftforge.client.ClientCommandHandler;
 import net.minecraftforge.client.event.ClientChatReceivedEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.client.event.RenderLivingEvent;
+import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.EntityJoinWorldEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -32,6 +33,12 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.item.EntityItem;
+import net.minecraft.init.Blocks;
+import net.minecraft.init.Items;
+import net.minecraft.block.Block;
 
 @Mod(modid = ExampleMod.MODID, version = ExampleMod.VERSION, guiFactory = "com.imshy.bedwars.ModGuiFactory")
 public class ExampleMod {
@@ -68,6 +75,14 @@ public class ExampleMod {
         GAME_MODE_COMMANDS.put("threes", "/play bedwars_four_three");
         GAME_MODE_COMMANDS.put("fours", "/play bedwars_four_four");
     }
+
+    // Invisible player detection system
+    private static final Map<String, Long> invisiblePlayerWarnings = new HashMap<String, Long>();
+
+    // Generator tracking system
+    private static final Map<BlockPos, GeneratorEntry> trackedGenerators = new HashMap<BlockPos, GeneratorEntry>();
+    private static long lastGeneratorScan = 0;
+    private static final long GENERATOR_SCAN_INTERVAL = 1000; // Scan every 1 second (20 ticks)
 
     @Mod.EventHandler
     public void preInit(net.minecraftforge.fml.common.event.FMLPreInitializationEvent event) {
@@ -392,8 +407,10 @@ public class ExampleMod {
             }
         }
 
-        // Only check when in a Bedwars game and we have a bed position
-        if (!inBedwarsLobby || playerBedPosition == null) {
+        // Only check when in a Bedwars game
+        if (!inBedwarsLobby) {
+            // Clear generators when leaving
+            trackedGenerators.clear();
             return;
         }
 
@@ -401,12 +418,30 @@ public class ExampleMod {
             return;
         }
 
+        long currentTime = System.currentTimeMillis();
+
+        // === INVISIBLE PLAYER DETECTION ===
+        if (ModConfig.isInvisiblePlayerAlertsEnabled()) {
+            checkForInvisiblePlayers(mc, currentTime);
+        }
+
+        // === GENERATOR SCANNING ===
+        if (ModConfig.isGeneratorDisplayEnabled()) {
+            if (currentTime - lastGeneratorScan >= GENERATOR_SCAN_INTERVAL) {
+                scanForGenerators(mc);
+                lastGeneratorScan = currentTime;
+            }
+        }
+
+        // === BED PROXIMITY WARNING ===
+        if (playerBedPosition == null) {
+            return;
+        }
+
         // Check if bed proximity warnings are enabled
         if (!ModConfig.isBedProximityAlertsEnabled()) {
             return;
         }
-
-        long currentTime = System.currentTimeMillis();
 
         // Wait 10 seconds after game start before checking (avoid false positives from
         // teleporting)
@@ -442,6 +477,112 @@ public class ExampleMod {
                 }
             }
         }
+    }
+
+    /**
+     * Check for invisible players and warn the user
+     */
+    private void checkForInvisiblePlayers(Minecraft mc, long currentTime) {
+        int detectionRange = ModConfig.getInvisibleDetectionRange();
+        int cooldown = ModConfig.getInvisibleWarningCooldown();
+
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            // Skip yourself
+            if (player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+                continue;
+            }
+
+            // Check if player is invisible
+            if (player.isInvisible()) {
+                double distance = player.getDistanceToEntity(mc.thePlayer);
+
+                if (distance <= detectionRange) {
+                    String playerName = player.getName();
+
+                    // Check cooldown
+                    Long lastWarning = invisiblePlayerWarnings.get(playerName);
+                    if (lastWarning == null || (currentTime - lastWarning) >= cooldown) {
+                        // Send warning
+                        String warningMessage = EnumChatFormatting.LIGHT_PURPLE + "👁 INVISIBLE PLAYER: " +
+                                EnumChatFormatting.WHITE + playerName +
+                                EnumChatFormatting.GRAY + " detected " + (int) distance + " blocks away!";
+                        mc.thePlayer.addChatMessage(new ChatComponentText(warningMessage));
+
+                        // Update cooldown
+                        invisiblePlayerWarnings.put(playerName, currentTime);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Scan for diamond/emerald generators and track them
+     */
+    private void scanForGenerators(Minecraft mc) {
+        int scanRange = ModConfig.getGeneratorScanRange();
+        BlockPos playerPos = mc.thePlayer.getPosition();
+
+        // Clear old generators that are now out of range
+        Iterator<Map.Entry<BlockPos, GeneratorEntry>> iterator = trackedGenerators.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<BlockPos, GeneratorEntry> entry = iterator.next();
+            if (playerPos.distanceSq(entry.getKey()) > scanRange * scanRange) {
+                iterator.remove();
+            }
+        }
+
+        // Scan for generators within range
+        for (int x = -scanRange; x <= scanRange; x += 4) {
+            for (int y = -20; y <= 20; y += 4) {
+                for (int z = -scanRange; z <= scanRange; z += 4) {
+                    BlockPos checkPos = playerPos.add(x, y, z);
+                    Block block = mc.theWorld.getBlockState(checkPos).getBlock();
+
+                    boolean isDiamond = (block == Blocks.diamond_block);
+                    boolean isEmerald = (block == Blocks.emerald_block);
+
+                    if (isDiamond || isEmerald) {
+                        // Check if this generator is already tracked
+                        GeneratorEntry existing = trackedGenerators.get(checkPos);
+                        if (existing == null) {
+                            existing = new GeneratorEntry(checkPos, isDiamond);
+                            trackedGenerators.put(checkPos, existing);
+                        }
+
+                        // Count resources on top
+                        existing.resourceCount = countResourcesNear(mc, checkPos, isDiamond);
+                        existing.lastUpdate = System.currentTimeMillis();
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Count resource items near a generator block
+     */
+    private int countResourcesNear(Minecraft mc, BlockPos generatorPos, boolean isDiamond) {
+        int count = 0;
+
+        for (Entity entity : mc.theWorld.loadedEntityList) {
+            if (entity instanceof EntityItem) {
+                EntityItem item = (EntityItem) entity;
+
+                // Check if item is near the generator (within 3 blocks)
+                double distance = Math.sqrt(entity.getPosition().distanceSq(generatorPos));
+                if (distance <= 3.0) {
+                    // Check if it's the right item type
+                    if (isDiamond && item.getEntityItem().getItem() == Items.diamond) {
+                        count += item.getEntityItem().stackSize;
+                    } else if (!isDiamond && item.getEntityItem().getItem() == Items.emerald) {
+                        count += item.getEntityItem().stackSize;
+                    }
+                }
+            }
+        }
+
+        return count;
     }
 
     /**
@@ -628,6 +769,179 @@ public class ExampleMod {
     }
 
     /**
+     * Renders generator labels in the world (through walls, visible from far)
+     */
+    @SubscribeEvent
+    public void onRenderWorldLast(RenderWorldLastEvent event) {
+        if (!inBedwarsLobby || !ModConfig.isGeneratorDisplayEnabled()) {
+            return;
+        }
+
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.thePlayer == null || mc.theWorld == null) {
+            return;
+        }
+
+        // Render all tracked generators
+        for (GeneratorEntry generator : trackedGenerators.values()) {
+            renderGeneratorLabel(generator, event.partialTicks);
+        }
+
+        // Render invisible player indicators
+        if (ModConfig.isInvisiblePlayerAlertsEnabled()) {
+            for (EntityPlayer player : mc.theWorld.playerEntities) {
+                if (player.isInvisible() && !player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+                    renderInvisiblePlayerIndicator(player, event.partialTicks);
+                }
+            }
+        }
+    }
+
+    /**
+     * Renders a label above a generator block
+     */
+    private void renderGeneratorLabel(GeneratorEntry generator, float partialTicks) {
+        Minecraft mc = Minecraft.getMinecraft();
+        FontRenderer fontRenderer = mc.fontRendererObj;
+
+        // Calculate position relative to player
+        double playerX = mc.thePlayer.lastTickPosX + (mc.thePlayer.posX - mc.thePlayer.lastTickPosX) * partialTicks;
+        double playerY = mc.thePlayer.lastTickPosY + (mc.thePlayer.posY - mc.thePlayer.lastTickPosY) * partialTicks;
+        double playerZ = mc.thePlayer.lastTickPosZ + (mc.thePlayer.posZ - mc.thePlayer.lastTickPosZ) * partialTicks;
+
+        double x = generator.position.getX() + 0.5 - playerX;
+        double y = generator.position.getY() + 1.5 - playerY; // Above the block
+        double z = generator.position.getZ() + 0.5 - playerZ;
+
+        // Check render distance
+        double distSq = x * x + y * y + z * z;
+        int renderDist = ModConfig.getGeneratorLabelRenderDistance();
+        if (distSq > renderDist * renderDist) {
+            return;
+        }
+
+        // Create label text
+        String icon = generator.isDiamond ? "💎" : "💚";
+        String color = generator.isDiamond ? EnumChatFormatting.AQUA.toString() : EnumChatFormatting.GREEN.toString();
+        String text = color + icon + " " + generator.resourceCount;
+
+        // Scale based on distance for visibility
+        float distance = (float) Math.sqrt(distSq);
+        float baseScale = 0.016666668F * 2.5F;
+        float distanceScale = Math.max(1.0F, distance / 20.0F); // Scale up with distance
+        float scale = baseScale * distanceScale;
+
+        GlStateManager.pushMatrix();
+        GlStateManager.translate((float) x, (float) y, (float) z);
+        GlStateManager.rotate(-mc.getRenderManager().playerViewY, 0.0F, 1.0F, 0.0F);
+        GlStateManager.rotate(mc.getRenderManager().playerViewX, 1.0F, 0.0F, 0.0F);
+        GlStateManager.scale(-scale, -scale, scale);
+
+        GlStateManager.disableLighting();
+        GlStateManager.depthMask(false);
+        GlStateManager.disableDepth(); // Render through walls
+        GlStateManager.enableBlend();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+
+        Tessellator tessellator = Tessellator.getInstance();
+        WorldRenderer worldRenderer = tessellator.getWorldRenderer();
+
+        int textWidth = fontRenderer.getStringWidth(text);
+        int halfWidth = textWidth / 2;
+
+        // Draw background
+        GlStateManager.disableTexture2D();
+        worldRenderer.begin(7, DefaultVertexFormats.POSITION_COLOR);
+        float bgAlpha = 0.4F;
+        worldRenderer.pos(-halfWidth - 2, -2, 0.0D).color(0.0F, 0.0F, 0.0F, bgAlpha).endVertex();
+        worldRenderer.pos(-halfWidth - 2, 10, 0.0D).color(0.0F, 0.0F, 0.0F, bgAlpha).endVertex();
+        worldRenderer.pos(halfWidth + 2, 10, 0.0D).color(0.0F, 0.0F, 0.0F, bgAlpha).endVertex();
+        worldRenderer.pos(halfWidth + 2, -2, 0.0D).color(0.0F, 0.0F, 0.0F, bgAlpha).endVertex();
+        tessellator.draw();
+        GlStateManager.enableTexture2D();
+
+        // Draw text
+        fontRenderer.drawString(text, -halfWidth, 0, 0xFFFFFFFF);
+
+        GlStateManager.enableDepth();
+        GlStateManager.depthMask(true);
+        GlStateManager.enableLighting();
+        GlStateManager.disableBlend();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        GlStateManager.popMatrix();
+    }
+
+    /**
+     * Renders a visual indicator for invisible players
+     */
+    private void renderInvisiblePlayerIndicator(EntityPlayer player, float partialTicks) {
+        Minecraft mc = Minecraft.getMinecraft();
+        FontRenderer fontRenderer = mc.fontRendererObj;
+
+        // Calculate position relative to player camera
+        double playerX = mc.thePlayer.lastTickPosX + (mc.thePlayer.posX - mc.thePlayer.lastTickPosX) * partialTicks;
+        double playerY = mc.thePlayer.lastTickPosY + (mc.thePlayer.posY - mc.thePlayer.lastTickPosY) * partialTicks;
+        double playerZ = mc.thePlayer.lastTickPosZ + (mc.thePlayer.posZ - mc.thePlayer.lastTickPosZ) * partialTicks;
+
+        double targetX = player.lastTickPosX + (player.posX - player.lastTickPosX) * partialTicks;
+        double targetY = player.lastTickPosY + (player.posY - player.lastTickPosY) * partialTicks;
+        double targetZ = player.lastTickPosZ + (player.posZ - player.lastTickPosZ) * partialTicks;
+
+        double x = targetX - playerX;
+        double y = targetY - playerY + player.height + 0.5; // Above player
+        double z = targetZ - playerZ;
+
+        // Check render distance
+        double distSq = x * x + y * y + z * z;
+        int detectionRange = ModConfig.getInvisibleDetectionRange();
+        if (distSq > detectionRange * detectionRange * 4) { // Render a bit further than detection
+            return;
+        }
+
+        String text = EnumChatFormatting.LIGHT_PURPLE + "👁 INVISIBLE";
+        float scale = 0.016666668F * 2.0F;
+
+        GlStateManager.pushMatrix();
+        GlStateManager.translate((float) x, (float) y, (float) z);
+        GlStateManager.rotate(-mc.getRenderManager().playerViewY, 0.0F, 1.0F, 0.0F);
+        GlStateManager.rotate(mc.getRenderManager().playerViewX, 1.0F, 0.0F, 0.0F);
+        GlStateManager.scale(-scale, -scale, scale);
+
+        GlStateManager.disableLighting();
+        GlStateManager.depthMask(false);
+        GlStateManager.disableDepth(); // Render through walls
+        GlStateManager.enableBlend();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+
+        Tessellator tessellator = Tessellator.getInstance();
+        WorldRenderer worldRenderer = tessellator.getWorldRenderer();
+
+        int textWidth = fontRenderer.getStringWidth(text);
+        int halfWidth = textWidth / 2;
+
+        // Draw pulsing background (purple tint)
+        GlStateManager.disableTexture2D();
+        worldRenderer.begin(7, DefaultVertexFormats.POSITION_COLOR);
+        float bgAlpha = 0.5F;
+        worldRenderer.pos(-halfWidth - 2, -2, 0.0D).color(0.5F, 0.0F, 0.5F, bgAlpha).endVertex();
+        worldRenderer.pos(-halfWidth - 2, 10, 0.0D).color(0.5F, 0.0F, 0.5F, bgAlpha).endVertex();
+        worldRenderer.pos(halfWidth + 2, 10, 0.0D).color(0.5F, 0.0F, 0.5F, bgAlpha).endVertex();
+        worldRenderer.pos(halfWidth + 2, -2, 0.0D).color(0.5F, 0.0F, 0.5F, bgAlpha).endVertex();
+        tessellator.draw();
+        GlStateManager.enableTexture2D();
+
+        // Draw text
+        fontRenderer.drawString(text, -halfWidth, 0, 0xFFFFFFFF);
+
+        GlStateManager.enableDepth();
+        GlStateManager.depthMask(true);
+        GlStateManager.enableLighting();
+        GlStateManager.disableBlend();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        GlStateManager.popMatrix();
+    }
+
+    /**
      * Helper class to store player join information
      */
     private static class PlayerJoinEntry {
@@ -642,6 +956,23 @@ public class ExampleMod {
             this.playerName = name;
             this.timestamp = time;
             this.stats = null;
+        }
+    }
+
+    /**
+     * Helper class to store generator information
+     */
+    private static class GeneratorEntry {
+        BlockPos position;
+        boolean isDiamond; // true = diamond, false = emerald
+        int resourceCount;
+        long lastUpdate;
+
+        GeneratorEntry(BlockPos pos, boolean diamond) {
+            this.position = pos;
+            this.isDiamond = diamond;
+            this.resourceCount = 0;
+            this.lastUpdate = System.currentTimeMillis();
         }
     }
 

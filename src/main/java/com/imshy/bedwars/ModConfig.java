@@ -29,6 +29,16 @@ public class ModConfig {
     private static boolean bedProximityAlertsEnabled = true;
     private static String autoplayMaxThreatLevel = "HIGH"; // HIGH or EXTREME
 
+    // Invisible player detection settings
+    private static boolean invisiblePlayerAlertsEnabled = true;
+    private static int invisibleDetectionRange = 20; // blocks
+    private static int invisibleWarningCooldown = 5000; // ms
+
+    // Generator display settings
+    private static boolean generatorDisplayEnabled = true;
+    private static int generatorScanRange = 100; // blocks
+    private static int generatorLabelRenderDistance = 256; // blocks
+
     /**
      * Initialize the configuration file
      */
@@ -160,6 +170,54 @@ public class ModConfig {
                 autoplayMaxThreatLevel = "HIGH";
             }
 
+            // Invisible player detection settings
+            Property invisibleAlertsProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "invisiblePlayerAlertsEnabled",
+                    true,
+                    "Show warning when invisible player is detected nearby");
+            invisiblePlayerAlertsEnabled = invisibleAlertsProp.getBoolean();
+
+            Property invisibleRangeProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "invisibleDetectionRange",
+                    20,
+                    "Range (blocks) to detect invisible players",
+                    5, 100);
+            invisibleDetectionRange = invisibleRangeProp.getInt();
+
+            Property invisibleCooldownProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "invisibleWarningCooldown",
+                    5000,
+                    "Cooldown (ms) between invisible player warnings",
+                    1000, 30000);
+            invisibleWarningCooldown = invisibleCooldownProp.getInt();
+
+            // Generator display settings
+            Property generatorDisplayProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "generatorDisplayEnabled",
+                    true,
+                    "Show resource count above diamond/emerald generators");
+            generatorDisplayEnabled = generatorDisplayProp.getBoolean();
+
+            Property generatorScanRangeProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "generatorScanRange",
+                    100,
+                    "Range (blocks) to scan for generators",
+                    50, 200);
+            generatorScanRange = generatorScanRangeProp.getInt();
+
+            Property generatorRenderDistProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "generatorLabelRenderDistance",
+                    256,
+                    "Distance (blocks) to render generator labels",
+                    100, 500);
+            generatorLabelRenderDistance = generatorRenderDistProp.getInt();
+
             // Apply the loaded API key to HypixelAPI
             if (apiKey != null && !apiKey.isEmpty()) {
                 HypixelAPI.setApiKey(apiKey);
@@ -238,5 +296,31 @@ public class ModConfig {
 
     public static String getAutoplayMaxThreatLevel() {
         return autoplayMaxThreatLevel;
+    }
+
+    // Invisible player detection getters
+    public static boolean isInvisiblePlayerAlertsEnabled() {
+        return invisiblePlayerAlertsEnabled;
+    }
+
+    public static int getInvisibleDetectionRange() {
+        return invisibleDetectionRange;
+    }
+
+    public static int getInvisibleWarningCooldown() {
+        return invisibleWarningCooldown;
+    }
+
+    // Generator display getters
+    public static boolean isGeneratorDisplayEnabled() {
+        return generatorDisplayEnabled;
+    }
+
+    public static int getGeneratorScanRange() {
+        return generatorScanRange;
+    }
+
+    public static int getGeneratorLabelRenderDistance() {
+        return generatorLabelRenderDistance;
     }
 }
