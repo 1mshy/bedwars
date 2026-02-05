@@ -30,6 +30,12 @@ public class ModConfig {
     private static boolean mapAwareBedDetectionEnabled = true;
     private static int bedScanRange = 30; // blocks
     private static int bedScanRetrySeconds = 12; // seconds
+    private static boolean audioAlertsEnabled = true;
+    private static boolean invisibleAudioCueEnabled = true;
+    private static boolean bedDangerAudioCueEnabled = true;
+    private static boolean extremeJoinAudioCueEnabled = true;
+    private static double audioCueVolume = 0.8;
+    private static int audioCueCooldownMs = 1500;
     private static String autoplayMaxThreatLevel = "HIGH"; // HIGH or EXTREME
 
     // Invisible player detection settings
@@ -220,6 +226,51 @@ public class ModConfig {
                     1000, 30000);
             invisibleWarningCooldown = invisibleCooldownProp.getInt();
 
+            // Audio cue settings
+            Property audioAlertsProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "audioAlertsEnabled",
+                    true,
+                    "Enable sound cues for critical events");
+            audioAlertsEnabled = audioAlertsProp.getBoolean();
+
+            Property invisAudioCueProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "invisibleAudioCueEnabled",
+                    true,
+                    "Play a sound when an invisible player warning triggers");
+            invisibleAudioCueEnabled = invisAudioCueProp.getBoolean();
+
+            Property bedAudioCueProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "bedDangerAudioCueEnabled",
+                    true,
+                    "Play a sound when bed danger warning triggers");
+            bedDangerAudioCueEnabled = bedAudioCueProp.getBoolean();
+
+            Property extremeJoinCueProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "extremeJoinAudioCueEnabled",
+                    true,
+                    "Play a sound when an EXTREME threat player is identified joining");
+            extremeJoinAudioCueEnabled = extremeJoinCueProp.getBoolean();
+
+            Property audioCueVolumeProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "audioCueVolume",
+                    0.8,
+                    "Volume for mod audio cues",
+                    0.0, 1.0);
+            audioCueVolume = audioCueVolumeProp.getDouble();
+
+            Property audioCueCooldownProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "audioCueCooldownMs",
+                    1500,
+                    "Cooldown (ms) between repeated audio cues of the same type",
+                    250, 10000);
+            audioCueCooldownMs = audioCueCooldownProp.getInt();
+
             // Generator display settings
             Property generatorDisplayProp = config.get(
                     Configuration.CATEGORY_GENERAL,
@@ -330,6 +381,30 @@ public class ModConfig {
 
     public static int getBedScanRetrySeconds() {
         return bedScanRetrySeconds;
+    }
+
+    public static boolean isAudioAlertsEnabled() {
+        return audioAlertsEnabled;
+    }
+
+    public static boolean isInvisibleAudioCueEnabled() {
+        return invisibleAudioCueEnabled;
+    }
+
+    public static boolean isBedDangerAudioCueEnabled() {
+        return bedDangerAudioCueEnabled;
+    }
+
+    public static boolean isExtremeJoinAudioCueEnabled() {
+        return extremeJoinAudioCueEnabled;
+    }
+
+    public static double getAudioCueVolume() {
+        return audioCueVolume;
+    }
+
+    public static int getAudioCueCooldownMs() {
+        return audioCueCooldownMs;
     }
 
     public static String getAutoplayMaxThreatLevel() {

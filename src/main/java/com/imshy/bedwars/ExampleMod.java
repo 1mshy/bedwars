@@ -304,6 +304,10 @@ public class ExampleMod {
 
                     // Only show players with MEDIUM or higher threat level
                     BedwarsStats.ThreatLevel threat = stats.getThreatLevel();
+                    if (threat == BedwarsStats.ThreatLevel.EXTREME) {
+                        AudioCueManager.playCue(Minecraft.getMinecraft(), AudioCueManager.CueType.EXTREME_PLAYER_JOIN);
+                    }
+
                     if (threat == BedwarsStats.ThreatLevel.MEDIUM ||
                             threat == BedwarsStats.ThreatLevel.HIGH ||
                             threat == BedwarsStats.ThreatLevel.EXTREME) {
@@ -489,6 +493,7 @@ public class ExampleMod {
                             EnumChatFormatting.RED + playerName +
                             EnumChatFormatting.YELLOW + " is " + (int) distance + " blocks from your bed!";
                     mc.thePlayer.addChatMessage(new ChatComponentText(warningMessage));
+                    AudioCueManager.playCue(mc, AudioCueManager.CueType.BED_DANGER);
 
                     // Update cooldown
                     lastBedWarningTime.put(playerName, currentTime);
@@ -621,6 +626,7 @@ public class ExampleMod {
                                 EnumChatFormatting.WHITE + playerName +
                                 EnumChatFormatting.GRAY + " detected " + (int) distance + " blocks away!";
                         mc.thePlayer.addChatMessage(new ChatComponentText(warningMessage));
+                        AudioCueManager.playCue(mc, AudioCueManager.CueType.INVISIBLE_NEARBY);
 
                         // Update cooldown
                         invisiblePlayerWarnings.put(playerName, currentTime);
