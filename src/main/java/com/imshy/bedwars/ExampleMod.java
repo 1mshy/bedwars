@@ -1,4 +1,4 @@
-package com.example.examplemod;
+package com.imshy.bedwars;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
@@ -33,7 +33,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-@Mod(modid = ExampleMod.MODID, version = ExampleMod.VERSION, guiFactory = "com.example.examplemod.ModGuiFactory")
+@Mod(modid = ExampleMod.MODID, version = ExampleMod.VERSION, guiFactory = "com.imshy.bedwars.ModGuiFactory")
 public class ExampleMod {
     public static final String MODID = "bedwars";
     public static final String VERSION = "1.0";
@@ -49,6 +49,8 @@ public class ExampleMod {
     private static BlockPos playerBedPosition = null;
     private static final int BED_PROXIMITY_WARNING_DISTANCE = 15;
     private static final long BED_WARNING_COOLDOWN = 5000; // 5 seconds between warnings per player
+    private static final long BED_WARNING_START_DELAY = 10000; // 10 seconds before checking starts
+    private static long gameStartTime = 0; // When the game started
     private static final Map<String, Long> lastBedWarningTime = new HashMap<String, Long>();
 
     // Autoplay system
@@ -108,6 +110,7 @@ public class ExampleMod {
                 // Bedwars)
                 if (mc.thePlayer != null) {
                     playerBedPosition = mc.thePlayer.getPosition();
+                    gameStartTime = System.currentTimeMillis();
                     lastBedWarningTime.clear();
                     System.out.println("[BedwarsStats] Bed position recorded at: " + playerBedPosition);
                 }
@@ -404,6 +407,12 @@ public class ExampleMod {
         }
 
         long currentTime = System.currentTimeMillis();
+
+        // Wait 10 seconds after game start before checking (avoid false positives from
+        // teleporting)
+        if (currentTime - gameStartTime < BED_WARNING_START_DELAY) {
+            return;
+        }
 
         // Check all players in the world
         for (EntityPlayer player : mc.theWorld.playerEntities) {
@@ -816,6 +825,7 @@ public class ExampleMod {
             } else {
                 sendMessage(sender, EnumChatFormatting.RED + "Unknown command. Use /bw for help.");
             }
+
         }
 
         @Override
@@ -823,7 +833,8 @@ public class ExampleMod {
                 net.minecraft.util.BlockPos pos) {
             if (args.length == 1) {
                 // Autocomplete subcommands
-                return getListOfStringsMatchingLastWord(args, "setkey", "lookup", "all", "info", "autoplay", "blacklist", "history",
+                return getListOfStringsMatchingLastWord(args, "setkey", "lookup", "all", "info", "autoplay",
+                        "blacklist", "history",
                         "status", "clear");
             }
 
@@ -1039,16 +1050,19 @@ public class ExampleMod {
                 String outcomeColor = e.outcome == PlayerDatabase.GameOutcome.WIN ? EnumChatFormatting.GREEN.toString()
                         : (e.outcome == PlayerDatabase.GameOutcome.LOSS ? EnumChatFormatting.RED.toString()
                                 : EnumChatFormatting.GRAY.toString());
-                sendMessage(sender, outcomeColor + e.outcome.name() +
-                        EnumChatFormatting.GRAY + " (" + daysAgo + " days ago)");
+                sendMessage(sender,
+                        outcomeColor + e.outcome.name() +
+                                EnumChatFormatting.GRAY + " (" + daysAgo + " days ago)");
             }
         }
 
         private void handleAutoplayCommand(ICommandSender sender, String[] args) {
             if (args.length < 2) {
                 sendMessage(sender, EnumChatFormatting.RED + "Usage: /bw autoplay <ones|twos|threes|fours|stop>");
-                sendMessage(sender, EnumChatFormatting.GRAY + "Autoplay will auto-queue until finding a lobby without threats.");
-                sendMessage(sender, EnumChatFormatting.GRAY + "Current max threat level: " + ModConfig.getAutoplayMaxThreatLevel());
+                sendMessage(sender,
+                        EnumChatFormatting.GRAY + "Autoplay will auto-queue until finding a lobby without threats.");
+                sendMessage(sender,
+                        EnumChatFormatting.GRAY + "Current max threat level: " + ModConfig.getAutoplayMaxThreatLevel());
                 return;
             }
 

@@ -1,4 +1,4 @@
-package com.example.examplemod;
+package com.imshy.bedwars;
 
 import net.minecraftforge.common.config.Configuration;
 import net.minecraftforge.common.config.Property;

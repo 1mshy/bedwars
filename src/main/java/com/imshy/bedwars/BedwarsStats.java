@@ -1,4 +1,4 @@
-package com.example.examplemod;
+package com.imshy.bedwars;
 
 /**
  * Data class holding Bedwars statistics for a player

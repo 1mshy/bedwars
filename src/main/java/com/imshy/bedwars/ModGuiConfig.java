@@ -1,4 +1,4 @@
-package com.example.examplemod;
+package com.imshy.bedwars;
 
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraftforge.common.config.ConfigElement;

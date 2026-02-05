@@ -25,14 +25,14 @@ BedwarsStats is a Minecraft 1.8.9 Forge Mod designed to enhance the Hypixel Bedw
 
 ## Components
 
-### Core Mod (`com.example.examplemod`)
+### Core Mod (`com.imshy.bedwars`)
 - **Purpose:** Main entry point, event handling loop, and UI rendering.
-- **Location:** `src/main/java/com/example/examplemod/ExampleMod.java`
+- **Location:** `src/main/java/com/example/bedwars/ExampleMod.java`
 - **Dependencies:** Minecraft Forge API, HypixelAPI, PlayerDatabase.
 
 ### Hypixel API Handler
 - **Purpose:** Async Fetching of player statistics from Hypixel API/Mojang API. Handles rate limiting and caching.
-- **Location:** `src/main/java/com/example/examplemod/HypixelAPI.java`
+- **Location:** `src/main/java/com/example/bedwars/HypixelAPI.java`
 - **Dependencies:** `java.net.HttpURLConnection`.
 
 ### Storage & Config
@@ -65,7 +65,7 @@ BedwarsStats is a Minecraft 1.8.9 Forge Mod designed to enhance the Hypixel Bedw
 
 ## Technical Debt
 
-- [ ] **Package Naming**: Source files are in `com.example.examplemod`, but build.gradle uses `com.imshy.bedwars`.
+- [ ] **Package Naming**: Source files are in `com.imshy.bedwars`, but build.gradle uses `com.imshy.bedwars`.
 - [ ] **API Parsing**: Manual JSON string manipulation loops in `HypixelAPI` (fragile) instead of full Gson mapping.
 - [ ] **Hardcoded Strings**: Chat detection relies on specific string literals which may break if Hypixel updates messages.
 - [ ] **Data Persistence**: `PlayerDatabase` implementation details (JSON/Flatfile?) need verification for scalability.
