@@ -10,6 +10,15 @@ A Minecraft Forge mod development kit for Minecraft 1.8.9.
 
 ## Initial Setup
 
+Get the correct Java JDK (1.8 OR 8)
+Check on Mac:
+```bash
+/usr/libexec/java_home -V
+export JAVA_HOME=$(/usr/libexec/java_home -v <version>)
+```
+On Windows set the JAVA_HOME environment variable to point to your JDK 8 installation.
+Then set your PATH variable to include `%JAVA_HOME%\bin`.
+
 Before importing into any IDE, you must run the Gradle setup:
 
 ```bash
