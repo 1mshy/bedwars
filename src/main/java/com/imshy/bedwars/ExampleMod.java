@@ -98,6 +98,13 @@ public class ExampleMod {
     // Team danger summary
     private static final int TEAM_DANGER_MIN_TEAMS = 2;
 
+    // Rush risk predictor
+    private static final long RUSH_PREDICTOR_ACTIVE_WINDOW_MS = 90_000; // First 90s only
+    private static long lastRushPredictorCheck = 0;
+    private static boolean rushRiskWarningSent = false;
+    private static int lastPredictedRushEtaSeconds = -1;
+    private static String lastDetectedMapName = "Unknown";
+
     @Mod.EventHandler
     public void preInit(net.minecraftforge.fml.common.event.FMLPreInitializationEvent event) {
         // Load configuration (including saved API key)
@@ -365,7 +372,9 @@ public class ExampleMod {
             }
         }
 
-        List<TeamDangerEntry> teamDangerSummaries = buildTeamDangerSummary(mc);
+        List<TeamDangerEntry> teamDangerSummaries = ModConfig.isTeamDangerSummaryEnabled()
+                ? buildTeamDangerSummary(mc)
+                : new ArrayList<TeamDangerEntry>();
 
         if (recentJoins.isEmpty() && teamDangerSummaries.isEmpty()) {
             return;
@@ -465,6 +474,11 @@ public class ExampleMod {
             if (currentTime - lastBedDetectionAttempt >= BED_DETECTION_ATTEMPT_INTERVAL) {
                 attemptBedDetection(mc, currentTime);
             }
+        }
+
+        // === RUSH RISK PREDICTOR ===
+        if (ModConfig.isRushPredictorEnabled()) {
+            checkRushRiskPredictor(mc, currentTime);
         }
 
         // === INVISIBLE PLAYER DETECTION ===
@@ -624,14 +638,142 @@ public class ExampleMod {
         bedDetectionStartTime = 0;
         lastBedDetectionAttempt = 0;
         lastBedWarningTime.clear();
+        resetRushPredictorState();
+    }
+
+    private void resetRushPredictorState() {
+        lastRushPredictorCheck = 0;
+        rushRiskWarningSent = false;
+        lastPredictedRushEtaSeconds = -1;
+        lastDetectedMapName = "Unknown";
+    }
+
+    /**
+     * Predict likely first rush timing and warn before direct bed proximity alerts.
+     */
+    private void checkRushRiskPredictor(Minecraft mc, long currentTime) {
+        if (gameStartTime <= 0 || (currentTime - gameStartTime) > RUSH_PREDICTOR_ACTIVE_WINDOW_MS) {
+            return;
+        }
+
+        long intervalMs = Math.max(1, ModConfig.getRushRecheckIntervalSeconds()) * 1000L;
+        if (currentTime - lastRushPredictorCheck < intervalMs) {
+            return;
+        }
+        lastRushPredictorCheck = currentTime;
+
+        String detectedMap = MapMetadataRegistry.detectCurrentMapName(mc);
+        if (detectedMap != null && !detectedMap.trim().isEmpty()) {
+            lastDetectedMapName = detectedMap.trim();
+        }
+
+        int baseRushSeconds = MapMetadataRegistry.getBaseRushSeconds(lastDetectedMapName);
+        double highestEnemyTeamThreat = getHighestEnemyTeamThreatAverage(mc);
+        double nearestEnemyDistance = getNearestEnemyDistanceToBed(mc);
+
+        RushRiskPredictor.Estimate estimate = RushRiskPredictor.estimateFirstRush(
+                baseRushSeconds,
+                highestEnemyTeamThreat,
+                nearestEnemyDistance);
+
+        lastPredictedRushEtaSeconds = estimate.etaSeconds;
+
+        long predictedRushTimestamp = gameStartTime + (estimate.etaSeconds * 1000L);
+        long secondsUntilRush = (predictedRushTimestamp - currentTime + 999L) / 1000L;
+
+        if (rushRiskWarningSent || secondsUntilRush <= 0) {
+            return;
+        }
+
+        if (secondsUntilRush <= ModConfig.getRushWarningThresholdSeconds()) {
+            String mapLabel = "Unknown".equals(lastDetectedMapName)
+                    ? "unknown map"
+                    : lastDetectedMapName;
+
+            mc.thePlayer.addChatMessage(new ChatComponentText(
+                    EnumChatFormatting.GOLD + "[Rush Risk] " +
+                            riskLevelColor(estimate.riskLevel) + estimate.riskLevel + " " +
+                            EnumChatFormatting.YELLOW + "first rush likely in ~" + secondsUntilRush + "s " +
+                            EnumChatFormatting.GRAY + "(" + mapLabel + ", base " + baseRushSeconds + "s)"));
+
+            AudioCueManager.playCue(mc, AudioCueManager.CueType.BED_DANGER);
+            rushRiskWarningSent = true;
+        }
+    }
+
+    private static double getHighestEnemyTeamThreatAverage(Minecraft mc) {
+        List<TeamDangerEntry> summaries = buildTeamDangerSummary(mc);
+        double highest = 0.0;
+        for (TeamDangerEntry summary : summaries) {
+            if (summary.isOwnTeam || summary.playersWithKnownThreat == 0) {
+                continue;
+            }
+            highest = Math.max(highest, summary.getAverageThreatScore());
+        }
+        return highest;
+    }
+
+    private double getNearestEnemyDistanceToBed(Minecraft mc) {
+        if (mc == null || mc.theWorld == null || mc.thePlayer == null) {
+            return -1.0;
+        }
+
+        String ownTeamKey = getPlayerTeamKey(mc.thePlayer);
+
+        BlockPos referencePos = fallbackBedPosition;
+        if (!playerBedBlocks.isEmpty()) {
+            referencePos = playerBedBlocks.get(0);
+        } else if (referencePos == null) {
+            referencePos = mc.thePlayer.getPosition();
+        }
+
+        double nearestDistance = Double.MAX_VALUE;
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            if (player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+                continue;
+            }
+
+            String playerTeamKey = getPlayerTeamKey(player);
+            if (ownTeamKey != null && ownTeamKey.equals(playerTeamKey)) {
+                continue;
+            }
+
+            double distance = Math.sqrt(player.getPosition().distanceSq(referencePos));
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+            }
+        }
+
+        return nearestDistance == Double.MAX_VALUE ? -1.0 : nearestDistance;
+    }
+
+    private static String getPlayerTeamKey(EntityPlayer player) {
+        if (player == null) {
+            return null;
+        }
+
+        Team team = player.getTeam();
+        if (team instanceof ScorePlayerTeam) {
+            return ((ScorePlayerTeam) team).getRegisteredName();
+        }
+        return null;
+    }
+
+    private static String riskLevelColor(String riskLevel) {
+        if ("HIGH".equals(riskLevel)) {
+            return EnumChatFormatting.RED.toString();
+        }
+        if ("MEDIUM".equals(riskLevel)) {
+            return EnumChatFormatting.YELLOW.toString();
+        }
+        return EnumChatFormatting.GREEN.toString();
     }
 
     /**
      * Builds a per-team threat summary using cached Bedwars stats.
      */
     private static List<TeamDangerEntry> buildTeamDangerSummary(Minecraft mc) {
-        if (!inBedwarsLobby || !ModConfig.isTeamDangerSummaryEnabled() || mc == null || mc.theWorld == null
-                || mc.thePlayer == null) {
+        if (!inBedwarsLobby || mc == null || mc.theWorld == null || mc.thePlayer == null) {
             return new ArrayList<TeamDangerEntry>();
         }
 
@@ -1472,6 +1614,11 @@ public class ExampleMod {
                 sendMessage(sender, String.format("Blacklist: %d players", db.getBlacklistSize()));
                 sendMessage(sender, String.format("History: %d unique players", db.getHistorySize()));
                 sendMessage(sender, "In Bedwars lobby: " + (inBedwarsLobby ? "Yes" : "No"));
+                sendMessage(sender, "Rush predictor: " + (ModConfig.isRushPredictorEnabled() ? "Enabled" : "Disabled"));
+                if (ModConfig.isRushPredictorEnabled()) {
+                    String etaText = lastPredictedRushEtaSeconds > 0 ? (lastPredictedRushEtaSeconds + "s") : "N/A";
+                    sendMessage(sender, "Predicted first rush: " + etaText + " | Map: " + lastDetectedMapName);
+                }
 
             } else if (subCommand.equals("clear")) {
                 HypixelAPI.clearCache();
@@ -1552,7 +1699,9 @@ public class ExampleMod {
 
             List<String> threats = new ArrayList<String>();
             List<String> historyPlayers = new ArrayList<String>();
-            List<TeamDangerEntry> teamDangerSummaries = buildTeamDangerSummary(mc);
+            List<TeamDangerEntry> teamDangerSummaries = ModConfig.isTeamDangerSummaryEnabled()
+                    ? buildTeamDangerSummary(mc)
+                    : new ArrayList<TeamDangerEntry>();
 
             sendMessage(sender, EnumChatFormatting.GOLD + "=== Lobby Info ===");
 

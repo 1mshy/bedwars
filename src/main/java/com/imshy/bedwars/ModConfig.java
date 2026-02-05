@@ -37,6 +37,9 @@ public class ModConfig {
     private static boolean extremeJoinAudioCueEnabled = true;
     private static double audioCueVolume = 0.8;
     private static int audioCueCooldownMs = 1500;
+    private static boolean rushPredictorEnabled = true;
+    private static int rushWarningThresholdSeconds = 20;
+    private static int rushRecheckIntervalSeconds = 2;
     private static String autoplayMaxThreatLevel = "HIGH"; // HIGH or EXTREME
 
     // Invisible player detection settings
@@ -279,6 +282,30 @@ public class ModConfig {
                     250, 10000);
             audioCueCooldownMs = audioCueCooldownProp.getInt();
 
+            // Rush risk predictor settings
+            Property rushPredictorProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "rushPredictorEnabled",
+                    true,
+                    "Estimate first-rush timing from map and nearby teams");
+            rushPredictorEnabled = rushPredictorProp.getBoolean();
+
+            Property rushWarnThresholdProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "rushWarningThresholdSeconds",
+                    20,
+                    "Warn when predicted first rush is within this many seconds",
+                    8, 45);
+            rushWarningThresholdSeconds = rushWarnThresholdProp.getInt();
+
+            Property rushRecheckProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "rushRecheckIntervalSeconds",
+                    2,
+                    "How often to refresh rush prediction while match starts",
+                    1, 10);
+            rushRecheckIntervalSeconds = rushRecheckProp.getInt();
+
             // Generator display settings
             Property generatorDisplayProp = config.get(
                     Configuration.CATEGORY_GENERAL,
@@ -417,6 +444,18 @@ public class ModConfig {
 
     public static int getAudioCueCooldownMs() {
         return audioCueCooldownMs;
+    }
+
+    public static boolean isRushPredictorEnabled() {
+        return rushPredictorEnabled;
+    }
+
+    public static int getRushWarningThresholdSeconds() {
+        return rushWarningThresholdSeconds;
+    }
+
+    public static int getRushRecheckIntervalSeconds() {
+        return rushRecheckIntervalSeconds;
     }
 
     public static String getAutoplayMaxThreatLevel() {
