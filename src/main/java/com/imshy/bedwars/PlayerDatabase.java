@@ -15,6 +15,7 @@ public class PlayerDatabase {
 
     private static final String DATA_DIR = "config/bedwarsstats";
     private static final String DATA_FILE = DATA_DIR + "/playerdata.json";
+    private static final long DAY_MS = 24L * 60L * 60L * 1000L;
 
     // Singleton instance
     private static PlayerDatabase instance;
@@ -37,11 +38,25 @@ public class PlayerDatabase {
         public String playerName; // Original case
         public String reason;
         public long addedAt;
+        public String source; // MANUAL or AUTO
+        public long expiresAt; // 0 = never
+        public long lastAutoAddAt; // 0 = never auto-added
 
         public BlacklistEntry(String playerName, String reason) {
+            this(playerName, reason, "MANUAL", 0L, 0L);
+        }
+
+        public BlacklistEntry(String playerName, String reason, String source, long expiresAt, long lastAutoAddAt) {
             this.playerName = playerName;
             this.reason = reason;
             this.addedAt = System.currentTimeMillis();
+            this.source = source;
+            this.expiresAt = expiresAt;
+            this.lastAutoAddAt = lastAutoAddAt;
+        }
+
+        public boolean isAuto() {
+            return "AUTO".equalsIgnoreCase(source);
         }
     }
 
@@ -93,9 +108,39 @@ public class PlayerDatabase {
      */
     public void addToBlacklist(String playerName, String reason) {
         String key = playerName.toLowerCase();
-        blacklist.put(key, new BlacklistEntry(playerName, reason));
+        blacklist.put(key, new BlacklistEntry(playerName, reason, "MANUAL", 0L, 0L));
         save();
         System.out.println("[BedwarsStats] Added " + playerName + " to blacklist: " + reason);
+    }
+
+    /**
+     * Add or refresh an auto-blacklist entry.
+     */
+    public boolean addOrRefreshAutoBlacklist(String playerName, String reason, int expiryDays) {
+        String key = playerName.toLowerCase();
+        BlacklistEntry existing = blacklist.get(key);
+
+        // Never overwrite manual blacklist entries.
+        if (existing != null && !existing.isAuto()) {
+            return false;
+        }
+
+        long now = System.currentTimeMillis();
+        long expiresAt = expiryDays > 0 ? now + (expiryDays * DAY_MS) : 0L;
+
+        if (existing == null) {
+            blacklist.put(key, new BlacklistEntry(playerName, reason, "AUTO", expiresAt, now));
+        } else {
+            existing.playerName = playerName;
+            existing.reason = reason;
+            existing.source = "AUTO";
+            existing.addedAt = now;
+            existing.expiresAt = expiresAt;
+            existing.lastAutoAddAt = now;
+        }
+
+        save();
+        return true;
     }
 
     /**
@@ -115,20 +160,53 @@ public class PlayerDatabase {
      * Check if a player is blacklisted
      */
     public boolean isBlacklisted(String playerName) {
-        return blacklist.containsKey(playerName.toLowerCase());
+        String key = playerName.toLowerCase();
+        BlacklistEntry entry = blacklist.get(key);
+        if (entry == null) {
+            return false;
+        }
+
+        if (isBlacklistEntryExpired(entry, System.currentTimeMillis())) {
+            blacklist.remove(key);
+            save();
+            return false;
+        }
+
+        return true;
     }
 
     /**
      * Get blacklist entry for a player
      */
     public BlacklistEntry getBlacklistEntry(String playerName) {
-        return blacklist.get(playerName.toLowerCase());
+        String key = playerName.toLowerCase();
+        BlacklistEntry entry = blacklist.get(key);
+        if (entry == null) {
+            return null;
+        }
+
+        if (isBlacklistEntryExpired(entry, System.currentTimeMillis())) {
+            blacklist.remove(key);
+            save();
+            return null;
+        }
+
+        return entry;
+    }
+
+    /**
+     * True if player is manually blacklisted.
+     */
+    public boolean isManualBlacklistEntry(String playerName) {
+        BlacklistEntry entry = getBlacklistEntry(playerName);
+        return entry != null && !entry.isAuto();
     }
 
     /**
      * Get all blacklisted players
      */
     public Collection<BlacklistEntry> getBlacklistedPlayers() {
+        purgeExpiredBlacklistEntriesIfNeeded();
         return blacklist.values();
     }
 
@@ -136,7 +214,31 @@ public class PlayerDatabase {
      * Get blacklist size
      */
     public int getBlacklistSize() {
+        purgeExpiredBlacklistEntriesIfNeeded();
         return blacklist.size();
+    }
+
+    /**
+     * Remove expired AUTO entries.
+     */
+    public int cleanupExpiredAutoBlacklistEntries() {
+        int removed = 0;
+        long now = System.currentTimeMillis();
+
+        Iterator<Map.Entry<String, BlacklistEntry>> iterator = blacklist.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<String, BlacklistEntry> entry = iterator.next();
+            if (isBlacklistEntryExpired(entry.getValue(), now)) {
+                iterator.remove();
+                removed++;
+            }
+        }
+
+        if (removed > 0) {
+            save();
+        }
+
+        return removed;
     }
 
     // ==================== HISTORY METHODS ====================
@@ -145,7 +247,7 @@ public class PlayerDatabase {
      * Add a player to the current game session
      */
     public void addToCurrentGame(String playerName) {
-        currentGamePlayers.add(playerName.toLowerCase());
+        currentGamePlayers.add(playerName);
     }
 
     /**
@@ -153,6 +255,13 @@ public class PlayerDatabase {
      */
     public void clearCurrentGame() {
         currentGamePlayers.clear();
+    }
+
+    /**
+     * Snapshot of players from the current game session.
+     */
+    public Set<String> getCurrentGamePlayersSnapshot() {
+        return new HashSet<String>(currentGamePlayers);
     }
 
     /**
@@ -186,6 +295,31 @@ public class PlayerDatabase {
             return history.get(key);
         }
         return new ArrayList<EncounterEntry>();
+    }
+
+    /**
+     * Count recent encounters by outcome within lookback window.
+     */
+    public int countRecentOutcomes(String playerName, GameOutcome outcome, int lookbackDays) {
+        if (lookbackDays <= 0) {
+            return 0;
+        }
+
+        long now = System.currentTimeMillis();
+        long lookbackMs = lookbackDays * DAY_MS;
+        int count = 0;
+
+        List<EncounterEntry> encounters = getEncounterHistory(playerName);
+        for (EncounterEntry encounter : encounters) {
+            if (encounter.outcome != outcome) {
+                continue;
+            }
+            if (now - encounter.timestamp <= lookbackMs) {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     /**
@@ -224,6 +358,51 @@ public class PlayerDatabase {
      */
     public int getHistorySize() {
         return history.size();
+    }
+
+    private boolean isBlacklistEntryExpired(BlacklistEntry entry, long now) {
+        return entry != null && entry.isAuto() && entry.expiresAt > 0 && entry.expiresAt <= now;
+    }
+
+    private void purgeExpiredBlacklistEntriesIfNeeded() {
+        boolean changed = false;
+        long now = System.currentTimeMillis();
+
+        Iterator<Map.Entry<String, BlacklistEntry>> iterator = blacklist.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<String, BlacklistEntry> entry = iterator.next();
+            if (isBlacklistEntryExpired(entry.getValue(), now)) {
+                iterator.remove();
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            save();
+        }
+    }
+
+    private void normalizeBlacklistEntries() {
+        for (Map.Entry<String, BlacklistEntry> mapEntry : blacklist.entrySet()) {
+            String key = mapEntry.getKey();
+            BlacklistEntry entry = mapEntry.getValue();
+            if (entry == null) {
+                continue;
+            }
+
+            if (entry.playerName == null || entry.playerName.trim().isEmpty()) {
+                entry.playerName = key;
+            }
+
+            if (entry.source == null || entry.source.trim().isEmpty()) {
+                entry.source = "MANUAL";
+            }
+
+            if (!entry.isAuto()) {
+                entry.expiresAt = 0L;
+                entry.lastAutoAddAt = 0L;
+            }
+        }
     }
 
     // ==================== PERSISTENCE ====================
@@ -295,6 +474,9 @@ public class PlayerDatabase {
                     history = new HashMap<String, List<EncounterEntry>>();
                 }
             }
+
+            normalizeBlacklistEntries();
+            cleanupExpiredAutoBlacklistEntries();
 
             System.out.println("[BedwarsStats] Loaded player database: " +
                     blacklist.size() + " blacklisted, " +

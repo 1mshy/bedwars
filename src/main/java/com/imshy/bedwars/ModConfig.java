@@ -40,6 +40,11 @@ public class ModConfig {
     private static boolean rushPredictorEnabled = true;
     private static int rushWarningThresholdSeconds = 20;
     private static int rushRecheckIntervalSeconds = 2;
+    private static boolean autoBlacklistEnabled = true;
+    private static int autoBlacklistLossThreshold = 3;
+    private static int autoBlacklistLookbackDays = 14;
+    private static int autoBlacklistCooldownDays = 7;
+    private static int autoBlacklistExpiryDays = 30;
     private static String autoplayMaxThreatLevel = "HIGH"; // HIGH or EXTREME
 
     // Invisible player detection settings
@@ -306,6 +311,46 @@ public class ModConfig {
                     1, 10);
             rushRecheckIntervalSeconds = rushRecheckProp.getInt();
 
+            // Auto-blacklist settings
+            Property autoBlacklistProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "autoBlacklistEnabled",
+                    true,
+                    "Automatically blacklist players after repeated losses");
+            autoBlacklistEnabled = autoBlacklistProp.getBoolean();
+
+            Property autoBlacklistLossThresholdProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "autoBlacklistLossThreshold",
+                    3,
+                    "Losses required to auto-blacklist a player within lookback window",
+                    2, 20);
+            autoBlacklistLossThreshold = autoBlacklistLossThresholdProp.getInt();
+
+            Property autoBlacklistLookbackProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "autoBlacklistLookbackDays",
+                    14,
+                    "Lookback window (days) for auto-blacklist loss counting",
+                    1, 90);
+            autoBlacklistLookbackDays = autoBlacklistLookbackProp.getInt();
+
+            Property autoBlacklistCooldownProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "autoBlacklistCooldownDays",
+                    7,
+                    "Cooldown (days) before the same player can be auto-blacklisted again",
+                    0, 60);
+            autoBlacklistCooldownDays = autoBlacklistCooldownProp.getInt();
+
+            Property autoBlacklistExpiryProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "autoBlacklistExpiryDays",
+                    30,
+                    "Days until auto-blacklist entries expire (0 = never expire)",
+                    0, 180);
+            autoBlacklistExpiryDays = autoBlacklistExpiryProp.getInt();
+
             // Generator display settings
             Property generatorDisplayProp = config.get(
                     Configuration.CATEGORY_GENERAL,
@@ -456,6 +501,26 @@ public class ModConfig {
 
     public static int getRushRecheckIntervalSeconds() {
         return rushRecheckIntervalSeconds;
+    }
+
+    public static boolean isAutoBlacklistEnabled() {
+        return autoBlacklistEnabled;
+    }
+
+    public static int getAutoBlacklistLossThreshold() {
+        return autoBlacklistLossThreshold;
+    }
+
+    public static int getAutoBlacklistLookbackDays() {
+        return autoBlacklistLookbackDays;
+    }
+
+    public static int getAutoBlacklistCooldownDays() {
+        return autoBlacklistCooldownDays;
+    }
+
+    public static int getAutoBlacklistExpiryDays() {
+        return autoBlacklistExpiryDays;
     }
 
     public static String getAutoplayMaxThreatLevel() {

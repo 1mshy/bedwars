@@ -149,7 +149,9 @@ public class ExampleMod {
                 if (mc.thePlayer != null) {
                     startBedTracking(mc, gameStartTime);
                 }
-                PlayerDatabase.getInstance().clearCurrentGame();
+                PlayerDatabase db = PlayerDatabase.getInstance();
+                db.cleanupExpiredAutoBlacklistEntries();
+                db.clearCurrentGame();
                 System.out.println("[BedwarsStats] Entered Bedwars lobby - stat tracking activated!");
 
                 // Schedule autoplay check if autoplay is enabled
@@ -193,8 +195,18 @@ public class ExampleMod {
                     message.contains("You have been eliminated!")) {
 
                 System.out.println("[BedwarsStats] LOSS detected!");
-                PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.LOSS);
-                PlayerDatabase.getInstance().clearCurrentGame();
+                PlayerDatabase db = PlayerDatabase.getInstance();
+                db.recordGameEnd(PlayerDatabase.GameOutcome.LOSS);
+
+                List<String> autoBlacklisted = AutoBlacklistManager.processLossOutcome(db);
+                if (!autoBlacklisted.isEmpty() && mc.thePlayer != null) {
+                    mc.thePlayer.addChatMessage(new ChatComponentText(
+                            EnumChatFormatting.GOLD + "[AutoBlacklist] " +
+                                    EnumChatFormatting.RED + "Added: " +
+                                    EnumChatFormatting.YELLOW + String.join(", ", autoBlacklisted)));
+                }
+
+                db.clearCurrentGame();
                 inBedwarsLobby = false;
                 clearBedTrackingState();
                 synchronized (recentJoins) {
@@ -1824,11 +1836,24 @@ public class ExampleMod {
                 } else {
                     sendMessage(sender,
                             EnumChatFormatting.GOLD + "=== Blacklisted Players (" + entries.size() + ") ===");
+                    long now = System.currentTimeMillis();
                     for (PlayerDatabase.BlacklistEntry entry : entries) {
-                        long daysAgo = (System.currentTimeMillis() - entry.addedAt) / (1000 * 60 * 60 * 24);
-                        sendMessage(sender, EnumChatFormatting.RED + entry.playerName +
+                        long daysAgo = (now - entry.addedAt) / (1000 * 60 * 60 * 24);
+                        String sourceLabel = entry.isAuto() ? "AUTO" : "MANUAL";
+                        String sourceColor = entry.isAuto()
+                                ? EnumChatFormatting.LIGHT_PURPLE.toString()
+                                : EnumChatFormatting.AQUA.toString();
+
+                        String expiryInfo = "";
+                        if (entry.isAuto() && entry.expiresAt > 0) {
+                            long daysLeft = Math.max(0L, (entry.expiresAt - now) / (1000 * 60 * 60 * 24));
+                            expiryInfo = EnumChatFormatting.GRAY + " | expires in " + daysLeft + "d";
+                        }
+
+                        sendMessage(sender, sourceColor + "[" + sourceLabel + "] " +
+                                EnumChatFormatting.RED + entry.playerName +
                                 EnumChatFormatting.GRAY + " - " + entry.reason +
-                                " (" + daysAgo + " days ago)");
+                                " (" + daysAgo + " days ago)" + expiryInfo);
                     }
                 }
 
