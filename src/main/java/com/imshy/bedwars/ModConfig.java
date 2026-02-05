@@ -27,6 +27,9 @@ public class ModConfig {
     private static boolean blacklistAlertsEnabled = true;
     private static boolean historyAlertsEnabled = true;
     private static boolean bedProximityAlertsEnabled = true;
+    private static boolean mapAwareBedDetectionEnabled = true;
+    private static int bedScanRange = 30; // blocks
+    private static int bedScanRetrySeconds = 12; // seconds
     private static String autoplayMaxThreatLevel = "HIGH"; // HIGH or EXTREME
 
     // Invisible player detection settings
@@ -157,6 +160,29 @@ public class ModConfig {
                     true,
                     "Show warning when enemy player is within 15 blocks of your bed");
             bedProximityAlertsEnabled = bedProximityAlertsProp.getBoolean();
+
+            Property mapAwareBedDetectionProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "mapAwareBedDetectionEnabled",
+                    true,
+                    "Scan around spawn to detect your actual bed block instead of only using spawn location");
+            mapAwareBedDetectionEnabled = mapAwareBedDetectionProp.getBoolean();
+
+            Property bedScanRangeProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "bedScanRange",
+                    30,
+                    "Horizontal scan range (blocks) for map-aware bed detection",
+                    8, 64);
+            bedScanRange = bedScanRangeProp.getInt();
+
+            Property bedScanRetrySecondsProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "bedScanRetrySeconds",
+                    12,
+                    "How long (seconds) to keep retrying bed detection before falling back to spawn",
+                    3, 30);
+            bedScanRetrySeconds = bedScanRetrySecondsProp.getInt();
 
             // Autoplay settings
             Property autoplayMaxThreatProp = config.get(
@@ -292,6 +318,18 @@ public class ModConfig {
 
     public static boolean isBedProximityAlertsEnabled() {
         return bedProximityAlertsEnabled;
+    }
+
+    public static boolean isMapAwareBedDetectionEnabled() {
+        return mapAwareBedDetectionEnabled;
+    }
+
+    public static int getBedScanRange() {
+        return bedScanRange;
+    }
+
+    public static int getBedScanRetrySeconds() {
+        return bedScanRetrySeconds;
     }
 
     public static String getAutoplayMaxThreatLevel() {

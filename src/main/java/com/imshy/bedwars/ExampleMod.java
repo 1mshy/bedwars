@@ -53,10 +53,17 @@ public class ExampleMod {
     private static boolean inBedwarsLobby = false;
 
     // Bed proximity warning system
-    private static BlockPos playerBedPosition = null;
+    private static final List<BlockPos> playerBedBlocks = new ArrayList<BlockPos>();
+    private static BlockPos fallbackBedPosition = null;
+    private static boolean usingBedFallback = false;
+    private static boolean bedDetectionPending = false;
+    private static long bedDetectionStartTime = 0;
+    private static long lastBedDetectionAttempt = 0;
     private static final int BED_PROXIMITY_WARNING_DISTANCE = 15;
     private static final long BED_WARNING_COOLDOWN = 5000; // 5 seconds between warnings per player
     private static final long BED_WARNING_START_DELAY = 10000; // 10 seconds before checking starts
+    private static final long BED_DETECTION_ATTEMPT_INTERVAL = 1000; // Retry once per second
+    private static final int BED_SCAN_VERTICAL_RANGE = 8;
     private static long gameStartTime = 0; // When the game started
     private static final Map<String, Long> lastBedWarningTime = new HashMap<String, Long>();
 
@@ -121,13 +128,12 @@ public class ExampleMod {
                 synchronized (recentJoins) {
                     recentJoins.clear();
                 }
-                // Record player's spawn position as bed location (spawn is always near bed in
-                // Bedwars)
+                gameStartTime = System.currentTimeMillis();
+                clearBedTrackingState();
+
+                // Initialize bed tracking when player is available
                 if (mc.thePlayer != null) {
-                    playerBedPosition = mc.thePlayer.getPosition();
-                    gameStartTime = System.currentTimeMillis();
-                    lastBedWarningTime.clear();
-                    System.out.println("[BedwarsStats] Bed position recorded at: " + playerBedPosition);
+                    startBedTracking(mc, gameStartTime);
                 }
                 PlayerDatabase.getInstance().clearCurrentGame();
                 System.out.println("[BedwarsStats] Entered Bedwars lobby - stat tracking activated!");
@@ -159,8 +165,7 @@ public class ExampleMod {
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.WIN);
                 PlayerDatabase.getInstance().clearCurrentGame();
                 inBedwarsLobby = false;
-                playerBedPosition = null;
-                lastBedWarningTime.clear();
+                clearBedTrackingState();
                 synchronized (recentJoins) {
                     recentJoins.clear();
                 }
@@ -177,8 +182,7 @@ public class ExampleMod {
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.LOSS);
                 PlayerDatabase.getInstance().clearCurrentGame();
                 inBedwarsLobby = false;
-                playerBedPosition = null;
-                lastBedWarningTime.clear();
+                clearBedTrackingState();
                 synchronized (recentJoins) {
                     recentJoins.clear();
                 }
@@ -190,8 +194,7 @@ public class ExampleMod {
         if (message.contains("You left.") || message.contains("Sending you to")) {
             if (inBedwarsLobby) {
                 inBedwarsLobby = false;
-                playerBedPosition = null;
-                lastBedWarningTime.clear();
+                clearBedTrackingState();
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.UNKNOWN);
                 PlayerDatabase.getInstance().clearCurrentGame();
                 synchronized (recentJoins) {
@@ -420,6 +423,18 @@ public class ExampleMod {
 
         long currentTime = System.currentTimeMillis();
 
+        // Initialize bed tracking if chat arrived before player entity was ready
+        if (fallbackBedPosition == null) {
+            startBedTracking(mc, currentTime);
+        }
+
+        // Retry map-aware bed detection while the match starts
+        if (bedDetectionPending && ModConfig.isMapAwareBedDetectionEnabled()) {
+            if (currentTime - lastBedDetectionAttempt >= BED_DETECTION_ATTEMPT_INTERVAL) {
+                attemptBedDetection(mc, currentTime);
+            }
+        }
+
         // === INVISIBLE PLAYER DETECTION ===
         if (ModConfig.isInvisiblePlayerAlertsEnabled()) {
             checkForInvisiblePlayers(mc, currentTime);
@@ -434,7 +449,7 @@ public class ExampleMod {
         }
 
         // === BED PROXIMITY WARNING ===
-        if (playerBedPosition == null) {
+        if (playerBedBlocks.isEmpty()) {
             return;
         }
 
@@ -458,8 +473,11 @@ public class ExampleMod {
 
             String playerName = player.getName();
 
-            // Calculate distance to bed (using BlockPos distance)
-            double distance = Math.sqrt(player.getPosition().distanceSq(playerBedPosition));
+            // Calculate distance to nearest tracked bed block
+            double distance = getDistanceToNearestTrackedBed(player.getPosition());
+            if (distance < 0) {
+                continue;
+            }
 
             // Check if within warning distance
             if (distance <= BED_PROXIMITY_WARNING_DISTANCE) {
@@ -477,6 +495,102 @@ public class ExampleMod {
                 }
             }
         }
+    }
+
+    /**
+     * Initialize bed tracking for the current match.
+     */
+    private void startBedTracking(Minecraft mc, long currentTime) {
+        if (mc.thePlayer == null) {
+            return;
+        }
+
+        clearBedTrackingState();
+        fallbackBedPosition = mc.thePlayer.getPosition();
+
+        if (!ModConfig.isMapAwareBedDetectionEnabled()) {
+            playerBedBlocks.add(fallbackBedPosition);
+            usingBedFallback = true;
+            System.out.println("[BedwarsStats] Map-aware bed detection disabled. Using spawn fallback: "
+                    + fallbackBedPosition);
+            return;
+        }
+
+        bedDetectionPending = true;
+        bedDetectionStartTime = currentTime;
+        attemptBedDetection(mc, currentTime);
+    }
+
+    /**
+     * Retry finding the actual bed block and fall back to spawn if timed out.
+     */
+    private void attemptBedDetection(Minecraft mc, long currentTime) {
+        if (!bedDetectionPending || mc.theWorld == null || mc.thePlayer == null) {
+            return;
+        }
+
+        lastBedDetectionAttempt = currentTime;
+
+        BedLocator.BedLocation bedLocation = BedLocator.locateNearestBed(
+                mc.theWorld,
+                mc.thePlayer.getPosition(),
+                ModConfig.getBedScanRange(),
+                BED_SCAN_VERTICAL_RANGE);
+
+        if (bedLocation != null && !bedLocation.getBedBlocks().isEmpty()) {
+            playerBedBlocks.clear();
+            playerBedBlocks.addAll(bedLocation.getBedBlocks());
+            usingBedFallback = false;
+            bedDetectionPending = false;
+            System.out.println("[BedwarsStats] Map-aware bed detected: " + playerBedBlocks);
+            return;
+        }
+
+        long retryWindowMs = ModConfig.getBedScanRetrySeconds() * 1000L;
+        if (currentTime - bedDetectionStartTime < retryWindowMs) {
+            return;
+        }
+
+        // Fallback to spawn position if detection times out.
+        bedDetectionPending = false;
+        playerBedBlocks.clear();
+        if (fallbackBedPosition != null) {
+            playerBedBlocks.add(fallbackBedPosition);
+            usingBedFallback = true;
+            System.out.println("[BedwarsStats] Bed scan timed out. Using spawn fallback: " + fallbackBedPosition);
+        }
+    }
+
+    /**
+     * Distance to the closest tracked bed block.
+     */
+    private double getDistanceToNearestTrackedBed(BlockPos position) {
+        if (playerBedBlocks.isEmpty() || position == null) {
+            return -1;
+        }
+
+        double closest = Double.MAX_VALUE;
+        for (BlockPos bedBlock : playerBedBlocks) {
+            double distance = Math.sqrt(position.distanceSq(bedBlock));
+            if (distance < closest) {
+                closest = distance;
+            }
+        }
+
+        return closest == Double.MAX_VALUE ? -1 : closest;
+    }
+
+    /**
+     * Reset bed tracking state when entering/leaving matches.
+     */
+    private void clearBedTrackingState() {
+        playerBedBlocks.clear();
+        fallbackBedPosition = null;
+        usingBedFallback = false;
+        bedDetectionPending = false;
+        bedDetectionStartTime = 0;
+        lastBedDetectionAttempt = 0;
+        lastBedWarningTime.clear();
     }
 
     /**
