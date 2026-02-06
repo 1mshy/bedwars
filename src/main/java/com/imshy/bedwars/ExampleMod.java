@@ -529,6 +529,11 @@ public class ExampleMod {
                 continue;
             }
 
+            // Skip teammates
+            if (isTeammate(mc.thePlayer, player)) {
+                continue;
+            }
+
             String playerName = player.getName();
 
             // Calculate distance to nearest tracked bed block
@@ -769,6 +774,20 @@ public class ExampleMod {
             return ((ScorePlayerTeam) team).getRegisteredName();
         }
         return null;
+    }
+
+    private static boolean isTeammate(EntityPlayer self, EntityPlayer other) {
+        if (self == null || other == null) {
+            return false;
+        }
+
+        if (self.isOnSameTeam(other)) {
+            return true;
+        }
+
+        String selfTeamKey = getPlayerTeamKey(self);
+        String otherTeamKey = getPlayerTeamKey(other);
+        return selfTeamKey != null && selfTeamKey.equals(otherTeamKey);
     }
 
     private static String riskLevelColor(String riskLevel) {
