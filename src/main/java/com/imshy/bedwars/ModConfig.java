@@ -27,6 +27,24 @@ public class ModConfig {
     private static boolean blacklistAlertsEnabled = true;
     private static boolean historyAlertsEnabled = true;
     private static boolean bedProximityAlertsEnabled = true;
+    private static boolean mapAwareBedDetectionEnabled = true;
+    private static int bedScanRange = 30; // blocks
+    private static int bedScanRetrySeconds = 12; // seconds
+    private static boolean teamDangerSummaryEnabled = true;
+    private static boolean audioAlertsEnabled = true;
+    private static boolean invisibleAudioCueEnabled = true;
+    private static boolean bedDangerAudioCueEnabled = true;
+    private static boolean extremeJoinAudioCueEnabled = true;
+    private static double audioCueVolume = 0.8;
+    private static int audioCueCooldownMs = 1500;
+    private static boolean rushPredictorEnabled = true;
+    private static int rushWarningThresholdSeconds = 20;
+    private static int rushRecheckIntervalSeconds = 2;
+    private static boolean autoBlacklistEnabled = true;
+    private static int autoBlacklistLossThreshold = 3;
+    private static int autoBlacklistLookbackDays = 14;
+    private static int autoBlacklistCooldownDays = 7;
+    private static int autoBlacklistExpiryDays = 30;
     private static String autoplayMaxThreatLevel = "HIGH"; // HIGH or EXTREME
 
     // Invisible player detection settings
@@ -158,6 +176,36 @@ public class ModConfig {
                     "Show warning when enemy player is within 15 blocks of your bed");
             bedProximityAlertsEnabled = bedProximityAlertsProp.getBoolean();
 
+            Property mapAwareBedDetectionProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "mapAwareBedDetectionEnabled",
+                    true,
+                    "Scan around spawn to detect your actual bed block instead of only using spawn location");
+            mapAwareBedDetectionEnabled = mapAwareBedDetectionProp.getBoolean();
+
+            Property bedScanRangeProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "bedScanRange",
+                    30,
+                    "Horizontal scan range (blocks) for map-aware bed detection",
+                    8, 64);
+            bedScanRange = bedScanRangeProp.getInt();
+
+            Property bedScanRetrySecondsProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "bedScanRetrySeconds",
+                    12,
+                    "How long (seconds) to keep retrying bed detection before falling back to spawn",
+                    3, 30);
+            bedScanRetrySeconds = bedScanRetrySecondsProp.getInt();
+
+            Property teamDangerSummaryProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "teamDangerSummaryEnabled",
+                    true,
+                    "Show per-team average danger summaries in HUD and /bw info");
+            teamDangerSummaryEnabled = teamDangerSummaryProp.getBoolean();
+
             // Autoplay settings
             Property autoplayMaxThreatProp = config.get(
                     Configuration.CATEGORY_GENERAL,
@@ -193,6 +241,115 @@ public class ModConfig {
                     "Cooldown (ms) between invisible player warnings",
                     1000, 30000);
             invisibleWarningCooldown = invisibleCooldownProp.getInt();
+
+            // Audio cue settings
+            Property audioAlertsProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "audioAlertsEnabled",
+                    true,
+                    "Enable sound cues for critical events");
+            audioAlertsEnabled = audioAlertsProp.getBoolean();
+
+            Property invisAudioCueProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "invisibleAudioCueEnabled",
+                    true,
+                    "Play a sound when an invisible player warning triggers");
+            invisibleAudioCueEnabled = invisAudioCueProp.getBoolean();
+
+            Property bedAudioCueProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "bedDangerAudioCueEnabled",
+                    true,
+                    "Play a sound when bed danger warning triggers");
+            bedDangerAudioCueEnabled = bedAudioCueProp.getBoolean();
+
+            Property extremeJoinCueProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "extremeJoinAudioCueEnabled",
+                    true,
+                    "Play a sound when an EXTREME threat player is identified joining");
+            extremeJoinAudioCueEnabled = extremeJoinCueProp.getBoolean();
+
+            Property audioCueVolumeProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "audioCueVolume",
+                    0.8,
+                    "Volume for mod audio cues",
+                    0.0, 1.0);
+            audioCueVolume = audioCueVolumeProp.getDouble();
+
+            Property audioCueCooldownProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "audioCueCooldownMs",
+                    1500,
+                    "Cooldown (ms) between repeated audio cues of the same type",
+                    250, 10000);
+            audioCueCooldownMs = audioCueCooldownProp.getInt();
+
+            // Rush risk predictor settings
+            Property rushPredictorProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "rushPredictorEnabled",
+                    true,
+                    "Estimate first-rush timing from map and nearby teams");
+            rushPredictorEnabled = rushPredictorProp.getBoolean();
+
+            Property rushWarnThresholdProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "rushWarningThresholdSeconds",
+                    20,
+                    "Warn when predicted first rush is within this many seconds",
+                    8, 45);
+            rushWarningThresholdSeconds = rushWarnThresholdProp.getInt();
+
+            Property rushRecheckProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "rushRecheckIntervalSeconds",
+                    2,
+                    "How often to refresh rush prediction while match starts",
+                    1, 10);
+            rushRecheckIntervalSeconds = rushRecheckProp.getInt();
+
+            // Auto-blacklist settings
+            Property autoBlacklistProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "autoBlacklistEnabled",
+                    true,
+                    "Automatically blacklist players after repeated losses");
+            autoBlacklistEnabled = autoBlacklistProp.getBoolean();
+
+            Property autoBlacklistLossThresholdProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "autoBlacklistLossThreshold",
+                    3,
+                    "Losses required to auto-blacklist a player within lookback window",
+                    2, 20);
+            autoBlacklistLossThreshold = autoBlacklistLossThresholdProp.getInt();
+
+            Property autoBlacklistLookbackProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "autoBlacklistLookbackDays",
+                    14,
+                    "Lookback window (days) for auto-blacklist loss counting",
+                    1, 90);
+            autoBlacklistLookbackDays = autoBlacklistLookbackProp.getInt();
+
+            Property autoBlacklistCooldownProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "autoBlacklistCooldownDays",
+                    7,
+                    "Cooldown (days) before the same player can be auto-blacklisted again",
+                    0, 60);
+            autoBlacklistCooldownDays = autoBlacklistCooldownProp.getInt();
+
+            Property autoBlacklistExpiryProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "autoBlacklistExpiryDays",
+                    30,
+                    "Days until auto-blacklist entries expire (0 = never expire)",
+                    0, 180);
+            autoBlacklistExpiryDays = autoBlacklistExpiryProp.getInt();
 
             // Generator display settings
             Property generatorDisplayProp = config.get(
@@ -292,6 +449,78 @@ public class ModConfig {
 
     public static boolean isBedProximityAlertsEnabled() {
         return bedProximityAlertsEnabled;
+    }
+
+    public static boolean isMapAwareBedDetectionEnabled() {
+        return mapAwareBedDetectionEnabled;
+    }
+
+    public static int getBedScanRange() {
+        return bedScanRange;
+    }
+
+    public static int getBedScanRetrySeconds() {
+        return bedScanRetrySeconds;
+    }
+
+    public static boolean isTeamDangerSummaryEnabled() {
+        return teamDangerSummaryEnabled;
+    }
+
+    public static boolean isAudioAlertsEnabled() {
+        return audioAlertsEnabled;
+    }
+
+    public static boolean isInvisibleAudioCueEnabled() {
+        return invisibleAudioCueEnabled;
+    }
+
+    public static boolean isBedDangerAudioCueEnabled() {
+        return bedDangerAudioCueEnabled;
+    }
+
+    public static boolean isExtremeJoinAudioCueEnabled() {
+        return extremeJoinAudioCueEnabled;
+    }
+
+    public static double getAudioCueVolume() {
+        return audioCueVolume;
+    }
+
+    public static int getAudioCueCooldownMs() {
+        return audioCueCooldownMs;
+    }
+
+    public static boolean isRushPredictorEnabled() {
+        return rushPredictorEnabled;
+    }
+
+    public static int getRushWarningThresholdSeconds() {
+        return rushWarningThresholdSeconds;
+    }
+
+    public static int getRushRecheckIntervalSeconds() {
+        return rushRecheckIntervalSeconds;
+    }
+
+    public static boolean isAutoBlacklistEnabled() {
+        return autoBlacklistEnabled;
+    }
+
+    public static int getAutoBlacklistLossThreshold() {
+        return autoBlacklistLossThreshold;
+    }
+
+    public static int getAutoBlacklistLookbackDays() {
+        return autoBlacklistLookbackDays;
+    }
+
+    public static int getAutoBlacklistCooldownDays() {
+        return autoBlacklistCooldownDays;
+    }
+
+    public static int getAutoBlacklistExpiryDays() {
+        return autoBlacklistExpiryDays;
     }
 
     public static String getAutoplayMaxThreatLevel() {

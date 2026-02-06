@@ -15,7 +15,7 @@ public class ModGuiConfig extends GuiConfig {
         super(
                 parent,
                 new ConfigElement(ModConfig.getConfig().getCategory(Configuration.CATEGORY_GENERAL)).getChildElements(),
-                ExampleMod.MODID,
+                BedwarsMod.MODID,
                 false,
                 false,
                 "BedwarsStats Configuration");

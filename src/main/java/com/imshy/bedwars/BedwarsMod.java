@@ -1,6 +1,7 @@
 package com.imshy.bedwars;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.network.NetworkPlayerInfo;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.Tessellator;
@@ -29,19 +30,25 @@ import net.minecraftforge.fml.common.gameevent.TickEvent;
 import org.lwjgl.opengl.GL11;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.init.Blocks;
 import net.minecraft.init.Items;
 import net.minecraft.block.Block;
+import net.minecraft.scoreboard.ScorePlayerTeam;
+import net.minecraft.scoreboard.Team;
 
-@Mod(modid = ExampleMod.MODID, version = ExampleMod.VERSION, guiFactory = "com.imshy.bedwars.ModGuiFactory")
-public class ExampleMod {
+@Mod(modid = BedwarsMod.MODID, version = BedwarsMod.VERSION, guiFactory = "com.imshy.bedwars.ModGuiFactory")
+public class BedwarsMod {
     public static final String MODID = "bedwars";
     public static final String VERSION = "1.0";
 
@@ -53,12 +60,22 @@ public class ExampleMod {
     private static boolean inBedwarsLobby = false;
 
     // Bed proximity warning system
-    private static BlockPos playerBedPosition = null;
+    private static final List<BlockPos> playerBedBlocks = new ArrayList<BlockPos>();
+    private static BlockPos fallbackBedPosition = null;
+    private static boolean usingBedFallback = false;
+    private static boolean bedDetectionPending = false;
+    private static long bedDetectionStartTime = 0;
+    private static long lastBedDetectionAttempt = 0;
     private static final int BED_PROXIMITY_WARNING_DISTANCE = 15;
     private static final long BED_WARNING_COOLDOWN = 5000; // 5 seconds between warnings per player
     private static final long BED_WARNING_START_DELAY = 10000; // 10 seconds before checking starts
+    private static final long BED_DETECTION_ATTEMPT_INTERVAL = 1000; // Retry once per second
+    private static final int BED_SCAN_VERTICAL_RANGE = 8;
     private static long gameStartTime = 0; // When the game started
     private static final Map<String, Long> lastBedWarningTime = new HashMap<String, Long>();
+    private static final Set<String> inferredTeammateUuids = new HashSet<String>();
+    private static final double TEAMMATE_SPAWN_RADIUS_BLOCKS = 10.0;
+    private static final long TEAMMATE_SPAWN_CAPTURE_WINDOW_MS = 2000; // First 1-2 seconds
 
     // Autoplay system
     private static boolean autoplayEnabled = false;
@@ -83,6 +100,16 @@ public class ExampleMod {
     private static final Map<BlockPos, GeneratorEntry> trackedGenerators = new HashMap<BlockPos, GeneratorEntry>();
     private static long lastGeneratorScan = 0;
     private static final long GENERATOR_SCAN_INTERVAL = 1000; // Scan every 1 second (20 ticks)
+
+    // Team danger summary
+    private static final int TEAM_DANGER_MIN_TEAMS = 2;
+
+    // Rush risk predictor
+    private static final long RUSH_PREDICTOR_ACTIVE_WINDOW_MS = 90_000; // First 90s only
+    private static long lastRushPredictorCheck = 0;
+    private static boolean rushRiskWarningSent = false;
+    private static int lastPredictedRushEtaSeconds = -1;
+    private static String lastDetectedMapName = "Unknown";
 
     @Mod.EventHandler
     public void preInit(net.minecraftforge.fml.common.event.FMLPreInitializationEvent event) {
@@ -116,32 +143,7 @@ public class ExampleMod {
         // Detect Bed Wars lobby message - matches the title shown in the screenshot
         if (message.contains("Protect your bed and destroy the enemy beds.")) {
             if (!inBedwarsLobby) {
-                inBedwarsLobby = true;
-                // Clear previous entries when entering a new lobby
-                synchronized (recentJoins) {
-                    recentJoins.clear();
-                }
-                // Record player's spawn position as bed location (spawn is always near bed in
-                // Bedwars)
-                if (mc.thePlayer != null) {
-                    playerBedPosition = mc.thePlayer.getPosition();
-                    gameStartTime = System.currentTimeMillis();
-                    lastBedWarningTime.clear();
-                    System.out.println("[BedwarsStats] Bed position recorded at: " + playerBedPosition);
-                }
-                PlayerDatabase.getInstance().clearCurrentGame();
-                System.out.println("[BedwarsStats] Entered Bedwars lobby - stat tracking activated!");
-
-                // Schedule autoplay check if autoplay is enabled
-                if (autoplayEnabled) {
-                    autoplayCheckTime = System.currentTimeMillis() + AUTOPLAY_CHECK_DELAY;
-                    autoplayPendingCheck = true;
-                    if (mc.thePlayer != null) {
-                        mc.thePlayer.addChatMessage(new ChatComponentText(
-                                EnumChatFormatting.GOLD + "[Autoplay] " +
-                                        EnumChatFormatting.YELLOW + "Checking lobby for threats in 5 seconds..."));
-                    }
-                }
+                activateBedwarsLobbyTracking(mc);
             }
         }
 
@@ -159,8 +161,7 @@ public class ExampleMod {
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.WIN);
                 PlayerDatabase.getInstance().clearCurrentGame();
                 inBedwarsLobby = false;
-                playerBedPosition = null;
-                lastBedWarningTime.clear();
+                clearBedTrackingState();
                 synchronized (recentJoins) {
                     recentJoins.clear();
                 }
@@ -174,11 +175,20 @@ public class ExampleMod {
                     message.contains("You have been eliminated!")) {
 
                 System.out.println("[BedwarsStats] LOSS detected!");
-                PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.LOSS);
-                PlayerDatabase.getInstance().clearCurrentGame();
+                PlayerDatabase db = PlayerDatabase.getInstance();
+                db.recordGameEnd(PlayerDatabase.GameOutcome.LOSS);
+
+                List<String> autoBlacklisted = AutoBlacklistManager.processLossOutcome(db);
+                if (!autoBlacklisted.isEmpty() && mc.thePlayer != null) {
+                    mc.thePlayer.addChatMessage(new ChatComponentText(
+                            EnumChatFormatting.GOLD + "[AutoBlacklist] " +
+                                    EnumChatFormatting.RED + "Added: " +
+                                    EnumChatFormatting.YELLOW + String.join(", ", autoBlacklisted)));
+                }
+
+                db.clearCurrentGame();
                 inBedwarsLobby = false;
-                playerBedPosition = null;
-                lastBedWarningTime.clear();
+                clearBedTrackingState();
                 synchronized (recentJoins) {
                     recentJoins.clear();
                 }
@@ -190,14 +200,53 @@ public class ExampleMod {
         if (message.contains("You left.") || message.contains("Sending you to")) {
             if (inBedwarsLobby) {
                 inBedwarsLobby = false;
-                playerBedPosition = null;
-                lastBedWarningTime.clear();
+                clearBedTrackingState();
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.UNKNOWN);
                 PlayerDatabase.getInstance().clearCurrentGame();
                 synchronized (recentJoins) {
                     recentJoins.clear();
                 }
                 System.out.println("[BedwarsStats] Left Bedwars game - unknown outcome.");
+            }
+        }
+    }
+
+    /**
+     * Runs Bedwars lobby startup logic (match tracking, bed detection, generators, autoplay).
+     */
+    private static void activateBedwarsLobbyTracking(Minecraft mc) {
+        inBedwarsLobby = true;
+        trackedGenerators.clear();
+        lastGeneratorScan = 0;
+
+        synchronized (recentJoins) {
+            recentJoins.clear();
+        }
+
+        gameStartTime = System.currentTimeMillis();
+        clearBedTrackingState();
+
+        if (mc != null && mc.thePlayer != null) {
+            startBedTracking(mc, gameStartTime);
+        }
+
+        PlayerDatabase db = PlayerDatabase.getInstance();
+        db.cleanupExpiredAutoBlacklistEntries();
+        db.clearCurrentGame();
+
+        if (mc != null) {
+            scanExistingPlayers(mc);
+        }
+
+        System.out.println("[BedwarsStats] Entered Bedwars lobby - stat tracking activated!");
+
+        if (autoplayEnabled) {
+            autoplayCheckTime = System.currentTimeMillis() + AUTOPLAY_CHECK_DELAY;
+            autoplayPendingCheck = true;
+            if (mc != null && mc.thePlayer != null) {
+                mc.thePlayer.addChatMessage(new ChatComponentText(
+                        EnumChatFormatting.GOLD + "[Autoplay] " +
+                                EnumChatFormatting.YELLOW + "Checking lobby for threats in 5 seconds..."));
             }
         }
     }
@@ -224,6 +273,33 @@ public class ExampleMod {
 
         // Ignore the local player (yourself)
         if (mc.thePlayer != null && player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+            return;
+        }
+
+        trackPlayerJoin(mc, player);
+    }
+
+    /**
+     * Process all currently-loaded players as join events.
+     */
+    private static void scanExistingPlayers(Minecraft mc) {
+        if (mc == null || mc.theWorld == null || mc.thePlayer == null) {
+            return;
+        }
+
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            if (player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+                continue;
+            }
+            trackPlayerJoin(mc, player);
+        }
+    }
+
+    /**
+     * Shared player tracking flow for real join events and manual lobby re-initialization.
+     */
+    private static void trackPlayerJoin(Minecraft mc, EntityPlayer player) {
+        if (mc == null || player == null) {
             return;
         }
 
@@ -301,6 +377,10 @@ public class ExampleMod {
 
                     // Only show players with MEDIUM or higher threat level
                     BedwarsStats.ThreatLevel threat = stats.getThreatLevel();
+                    if (threat == BedwarsStats.ThreatLevel.EXTREME) {
+                        AudioCueManager.playCue(Minecraft.getMinecraft(), AudioCueManager.CueType.EXTREME_PLAYER_JOIN);
+                    }
+
                     if (threat == BedwarsStats.ThreatLevel.MEDIUM ||
                             threat == BedwarsStats.ThreatLevel.HIGH ||
                             threat == BedwarsStats.ThreatLevel.EXTREME) {
@@ -329,7 +409,7 @@ public class ExampleMod {
     }
 
     /**
-     * Renders the player names on screen
+     * Keeps the recent join cache trimmed. HUD rendering for lobby threat sections is disabled.
      */
     @SubscribeEvent
     public void onRenderOverlay(RenderGameOverlayEvent.Post event) {
@@ -348,41 +428,6 @@ public class ExampleMod {
                 if (currentTime - iterator.next().timestamp > DISPLAY_DURATION) {
                     iterator.remove();
                 }
-            }
-        }
-
-        if (recentJoins.isEmpty())
-            return;
-
-        FontRenderer fontRenderer = mc.fontRendererObj;
-
-        int x = 5;
-        int y = 50;
-        int lineHeight = 12;
-
-        // Draw header
-        fontRenderer.drawStringWithShadow(
-                EnumChatFormatting.GOLD + "Recent Players:",
-                x, y, 0xFFFFFF);
-        y += lineHeight + 2;
-
-        // Draw player names with stats
-        synchronized (recentJoins) {
-            for (PlayerJoinEntry entry : recentJoins) {
-                String displayText;
-
-                if (entry.stats != null && entry.stats.isLoaded()) {
-                    displayText = entry.stats.getThreatColor() + entry.playerName + " " +
-                            entry.stats.getDisplayString();
-                } else if (entry.stats != null && entry.stats.hasError()) {
-                    displayText = EnumChatFormatting.GRAY + entry.playerName + " [Error]";
-                } else {
-                    displayText = EnumChatFormatting.WHITE + entry.playerName +
-                            EnumChatFormatting.GRAY + " [Loading...]";
-                }
-
-                fontRenderer.drawStringWithShadow(displayText, x, y, 0xFFFFFF);
-                y += lineHeight;
             }
         }
     }
@@ -420,6 +465,25 @@ public class ExampleMod {
 
         long currentTime = System.currentTimeMillis();
 
+        captureEarlySpawnTeammates(mc, currentTime);
+
+        // Initialize bed tracking if chat arrived before player entity was ready
+        if (fallbackBedPosition == null) {
+            startBedTracking(mc, currentTime);
+        }
+
+        // Retry map-aware bed detection while the match starts
+        if (bedDetectionPending && ModConfig.isMapAwareBedDetectionEnabled()) {
+            if (currentTime - lastBedDetectionAttempt >= BED_DETECTION_ATTEMPT_INTERVAL) {
+                attemptBedDetection(mc, currentTime);
+            }
+        }
+
+        // === RUSH RISK PREDICTOR ===
+        if (ModConfig.isRushPredictorEnabled()) {
+            checkRushRiskPredictor(mc, currentTime);
+        }
+
         // === INVISIBLE PLAYER DETECTION ===
         if (ModConfig.isInvisiblePlayerAlertsEnabled()) {
             checkForInvisiblePlayers(mc, currentTime);
@@ -434,7 +498,7 @@ public class ExampleMod {
         }
 
         // === BED PROXIMITY WARNING ===
-        if (playerBedPosition == null) {
+        if (playerBedBlocks.isEmpty()) {
             return;
         }
 
@@ -457,9 +521,20 @@ public class ExampleMod {
             }
 
             String playerName = player.getName();
+            if (isWatchdogBotName(playerName)) {
+                continue;
+            }
 
-            // Calculate distance to bed (using BlockPos distance)
-            double distance = Math.sqrt(player.getPosition().distanceSq(playerBedPosition));
+            // Skip teammates
+            if (isTeammate(mc, mc.thePlayer, player)) {
+                continue;
+            }
+
+            // Calculate distance to nearest tracked bed block
+            double distance = getDistanceToNearestTrackedBed(player.getPosition());
+            if (distance < 0) {
+                continue;
+            }
 
             // Check if within warning distance
             if (distance <= BED_PROXIMITY_WARNING_DISTANCE) {
@@ -471,12 +546,519 @@ public class ExampleMod {
                             EnumChatFormatting.RED + playerName +
                             EnumChatFormatting.YELLOW + " is " + (int) distance + " blocks from your bed!";
                     mc.thePlayer.addChatMessage(new ChatComponentText(warningMessage));
+                    AudioCueManager.playCue(mc, AudioCueManager.CueType.BED_DANGER);
 
                     // Update cooldown
                     lastBedWarningTime.put(playerName, currentTime);
                 }
             }
         }
+    }
+
+    /**
+     * Initialize bed tracking for the current match.
+     */
+    private static void startBedTracking(Minecraft mc, long currentTime) {
+        if (mc.thePlayer == null) {
+            return;
+        }
+
+        clearBedTrackingState();
+        fallbackBedPosition = mc.thePlayer.getPosition();
+
+        if (!ModConfig.isMapAwareBedDetectionEnabled()) {
+            playerBedBlocks.add(fallbackBedPosition);
+            usingBedFallback = true;
+            System.out.println("[BedwarsStats] Map-aware bed detection disabled. Using spawn fallback: "
+                    + fallbackBedPosition);
+            return;
+        }
+
+        bedDetectionPending = true;
+        bedDetectionStartTime = currentTime;
+        attemptBedDetection(mc, currentTime);
+    }
+
+    /**
+     * Retry finding the actual bed block and fall back to spawn if timed out.
+     */
+    private static void attemptBedDetection(Minecraft mc, long currentTime) {
+        if (!bedDetectionPending || mc.theWorld == null || mc.thePlayer == null) {
+            return;
+        }
+
+        lastBedDetectionAttempt = currentTime;
+
+        BedLocator.BedLocation bedLocation = BedLocator.locateNearestBed(
+                mc.theWorld,
+                mc.thePlayer.getPosition(),
+                ModConfig.getBedScanRange(),
+                BED_SCAN_VERTICAL_RANGE);
+
+        if (bedLocation != null && !bedLocation.getBedBlocks().isEmpty()) {
+            playerBedBlocks.clear();
+            playerBedBlocks.addAll(bedLocation.getBedBlocks());
+            usingBedFallback = false;
+            bedDetectionPending = false;
+            System.out.println("[BedwarsStats] Map-aware bed detected: " + playerBedBlocks);
+            return;
+        }
+
+        long retryWindowMs = ModConfig.getBedScanRetrySeconds() * 1000L;
+        if (currentTime - bedDetectionStartTime < retryWindowMs) {
+            return;
+        }
+
+        // Fallback to spawn position if detection times out.
+        bedDetectionPending = false;
+        playerBedBlocks.clear();
+        if (fallbackBedPosition != null) {
+            playerBedBlocks.add(fallbackBedPosition);
+            usingBedFallback = true;
+            System.out.println("[BedwarsStats] Bed scan timed out. Using spawn fallback: " + fallbackBedPosition);
+        }
+    }
+
+    /**
+     * Distance to the closest tracked bed block.
+     */
+    private double getDistanceToNearestTrackedBed(BlockPos position) {
+        if (playerBedBlocks.isEmpty() || position == null) {
+            return -1;
+        }
+
+        double closest = Double.MAX_VALUE;
+        for (BlockPos bedBlock : playerBedBlocks) {
+            double distance = Math.sqrt(position.distanceSq(bedBlock));
+            if (distance < closest) {
+                closest = distance;
+            }
+        }
+
+        return closest == Double.MAX_VALUE ? -1 : closest;
+    }
+
+    /**
+     * Reset bed tracking state when entering/leaving matches.
+     */
+    private static void clearBedTrackingState() {
+        playerBedBlocks.clear();
+        fallbackBedPosition = null;
+        usingBedFallback = false;
+        bedDetectionPending = false;
+        bedDetectionStartTime = 0;
+        lastBedDetectionAttempt = 0;
+        lastBedWarningTime.clear();
+        inferredTeammateUuids.clear();
+        resetRushPredictorState();
+    }
+
+    private static void resetRushPredictorState() {
+        lastRushPredictorCheck = 0;
+        rushRiskWarningSent = false;
+        lastPredictedRushEtaSeconds = -1;
+        lastDetectedMapName = "Unknown";
+    }
+
+    /**
+     * Predict likely first rush timing and warn before direct bed proximity alerts.
+     */
+    private void checkRushRiskPredictor(Minecraft mc, long currentTime) {
+        if (gameStartTime <= 0 || (currentTime - gameStartTime) > RUSH_PREDICTOR_ACTIVE_WINDOW_MS) {
+            return;
+        }
+
+        long intervalMs = Math.max(1, ModConfig.getRushRecheckIntervalSeconds()) * 1000L;
+        if (currentTime - lastRushPredictorCheck < intervalMs) {
+            return;
+        }
+        lastRushPredictorCheck = currentTime;
+
+        String detectedMap = MapMetadataRegistry.detectCurrentMapName(mc);
+        if (detectedMap != null && !detectedMap.trim().isEmpty()) {
+            lastDetectedMapName = detectedMap.trim();
+        }
+
+        int baseRushSeconds = MapMetadataRegistry.getBaseRushSeconds(lastDetectedMapName);
+        double highestEnemyTeamThreat = getHighestEnemyTeamThreatAverage(mc);
+        double nearestEnemyDistance = getNearestEnemyDistanceToBed(mc);
+
+        RushRiskPredictor.Estimate estimate = RushRiskPredictor.estimateFirstRush(
+                baseRushSeconds,
+                highestEnemyTeamThreat,
+                nearestEnemyDistance);
+
+        lastPredictedRushEtaSeconds = estimate.etaSeconds;
+
+        long predictedRushTimestamp = gameStartTime + (estimate.etaSeconds * 1000L);
+        long secondsUntilRush = (predictedRushTimestamp - currentTime + 999L) / 1000L;
+
+        if (rushRiskWarningSent || secondsUntilRush <= 0) {
+            return;
+        }
+
+        if (secondsUntilRush <= ModConfig.getRushWarningThresholdSeconds()) {
+            String mapLabel = "Unknown".equals(lastDetectedMapName)
+                    ? "unknown map"
+                    : lastDetectedMapName;
+
+            mc.thePlayer.addChatMessage(new ChatComponentText(
+                    EnumChatFormatting.GOLD + "[Rush Risk] " +
+                            riskLevelColor(estimate.riskLevel) + estimate.riskLevel + " " +
+                            EnumChatFormatting.YELLOW + "first rush likely in ~" + secondsUntilRush + "s " +
+                            EnumChatFormatting.GRAY + "(" + mapLabel + ", base " + baseRushSeconds + "s)"));
+
+            AudioCueManager.playCue(mc, AudioCueManager.CueType.BED_DANGER);
+            rushRiskWarningSent = true;
+        }
+    }
+
+    private static double getHighestEnemyTeamThreatAverage(Minecraft mc) {
+        List<TeamDangerEntry> summaries = buildTeamDangerSummary(mc);
+        double highest = 0.0;
+        for (TeamDangerEntry summary : summaries) {
+            if (summary.isOwnTeam || summary.playersWithKnownThreat == 0) {
+                continue;
+            }
+            highest = Math.max(highest, summary.getAverageThreatScore());
+        }
+        return highest;
+    }
+
+    private double getNearestEnemyDistanceToBed(Minecraft mc) {
+        if (mc == null || mc.theWorld == null || mc.thePlayer == null) {
+            return -1.0;
+        }
+
+        BlockPos referencePos = fallbackBedPosition;
+        if (!playerBedBlocks.isEmpty()) {
+            referencePos = playerBedBlocks.get(0);
+        } else if (referencePos == null) {
+            referencePos = mc.thePlayer.getPosition();
+        }
+
+        double nearestDistance = Double.MAX_VALUE;
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            if (player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+                continue;
+            }
+
+            if (isWatchdogBotName(player.getName())) {
+                continue;
+            }
+
+            if (isTeammate(mc, mc.thePlayer, player)) {
+                continue;
+            }
+
+            double distance = Math.sqrt(player.getPosition().distanceSq(referencePos));
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+            }
+        }
+
+        return nearestDistance == Double.MAX_VALUE ? -1.0 : nearestDistance;
+    }
+
+    private static String getPlayerTeamKey(EntityPlayer player) {
+        if (player == null) {
+            return null;
+        }
+
+        Team team = player.getTeam();
+        if (team instanceof ScorePlayerTeam) {
+            return ((ScorePlayerTeam) team).getRegisteredName();
+        }
+        return null;
+    }
+
+    private static void captureEarlySpawnTeammates(Minecraft mc, long currentTime) {
+        if (mc == null || mc.theWorld == null || mc.thePlayer == null) {
+            return;
+        }
+        if (!isWithinSpawnTeammateWindow(currentTime)) {
+            return;
+        }
+
+        double teammateRadiusSq = TEAMMATE_SPAWN_RADIUS_BLOCKS * TEAMMATE_SPAWN_RADIUS_BLOCKS;
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            if (player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+                continue;
+            }
+            if (isWatchdogBotName(player.getName())) {
+                continue;
+            }
+
+            if (mc.thePlayer.getDistanceSqToEntity(player) <= teammateRadiusSq) {
+                inferredTeammateUuids.add(player.getUniqueID().toString());
+            }
+        }
+    }
+
+    private static boolean isTeammate(Minecraft mc, EntityPlayer self, EntityPlayer other) {
+        if (self == null || other == null) {
+            return false;
+        }
+
+        if (self.getUniqueID().equals(other.getUniqueID())) {
+            return true;
+        }
+
+        if (inferredTeammateUuids.contains(other.getUniqueID().toString())) {
+            return true;
+        }
+
+        long currentTime = System.currentTimeMillis();
+        if (isWithinSpawnTeammateWindow(currentTime)) {
+            double teammateRadiusSq = TEAMMATE_SPAWN_RADIUS_BLOCKS * TEAMMATE_SPAWN_RADIUS_BLOCKS;
+            if (self.getDistanceSqToEntity(other) <= teammateRadiusSq) {
+                inferredTeammateUuids.add(other.getUniqueID().toString());
+                return true;
+            }
+        }
+
+        Character selfTabColor = getTabNamePrimaryColorCode(mc, self);
+        Character otherTabColor = getTabNamePrimaryColorCode(mc, other);
+        if (selfTabColor != null && otherTabColor != null) {
+            return selfTabColor.charValue() == otherTabColor.charValue();
+        }
+
+        if (self.isOnSameTeam(other)) {
+            return true;
+        }
+
+        String selfTeamKey = getPlayerTeamKey(self);
+        String otherTeamKey = getPlayerTeamKey(other);
+        return selfTeamKey != null && selfTeamKey.equals(otherTeamKey);
+    }
+
+    private static boolean isWithinSpawnTeammateWindow(long currentTime) {
+        return inBedwarsLobby &&
+                gameStartTime > 0 &&
+                (currentTime - gameStartTime) <= TEAMMATE_SPAWN_CAPTURE_WINDOW_MS;
+    }
+
+    private static boolean isWatchdogBotName(String playerName) {
+        if (playerName == null || playerName.length() != 10) {
+            return false;
+        }
+
+        for (int i = 0; i < playerName.length(); i++) {
+            char c = playerName.charAt(i);
+            boolean isDigit = c >= '0' && c <= '9';
+            boolean isLowercaseLetter = c >= 'a' && c <= 'z';
+            if (!isDigit && !isLowercaseLetter) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static Character getTabNamePrimaryColorCode(Minecraft mc, EntityPlayer player) {
+        String formattedName = getFormattedTabName(mc, player);
+        if (formattedName == null || formattedName.isEmpty()) {
+            return null;
+        }
+
+        Character activeColorCode = null;
+        for (int i = 0; i < formattedName.length() - 1; i++) {
+            if (formattedName.charAt(i) != '\u00A7') {
+                continue;
+            }
+
+            char code = Character.toLowerCase(formattedName.charAt(i + 1));
+            if ((code >= '0' && code <= '9') || (code >= 'a' && code <= 'f')) {
+                activeColorCode = Character.valueOf(code);
+            }
+        }
+        return activeColorCode;
+    }
+
+    private static String getFormattedTabName(Minecraft mc, EntityPlayer player) {
+        if (mc == null || mc.getNetHandler() == null || player == null) {
+            return null;
+        }
+
+        NetworkPlayerInfo playerInfo = mc.getNetHandler().getPlayerInfo(player.getUniqueID());
+        if (playerInfo == null) {
+            return null;
+        }
+
+        if (playerInfo.getDisplayName() != null) {
+            return playerInfo.getDisplayName().getFormattedText();
+        }
+
+        Team team = player.getTeam();
+        if (team instanceof ScorePlayerTeam) {
+            return ScorePlayerTeam.formatPlayerName((ScorePlayerTeam) team, player.getName());
+        }
+        return player.getName();
+    }
+
+    private static String riskLevelColor(String riskLevel) {
+        if ("HIGH".equals(riskLevel)) {
+            return EnumChatFormatting.RED.toString();
+        }
+        if ("MEDIUM".equals(riskLevel)) {
+            return EnumChatFormatting.YELLOW.toString();
+        }
+        return EnumChatFormatting.GREEN.toString();
+    }
+
+    /**
+     * Builds a per-team threat summary using cached Bedwars stats.
+     */
+    private static List<TeamDangerEntry> buildTeamDangerSummary(Minecraft mc) {
+        if (!inBedwarsLobby || mc == null || mc.theWorld == null || mc.thePlayer == null) {
+            return new ArrayList<TeamDangerEntry>();
+        }
+
+        String ownTeamKey = null;
+        Team ownTeam = mc.thePlayer.getTeam();
+        if (ownTeam instanceof ScorePlayerTeam) {
+            ownTeamKey = ((ScorePlayerTeam) ownTeam).getRegisteredName();
+        }
+
+        Map<String, TeamDangerEntry> byTeam = new HashMap<String, TeamDangerEntry>();
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            Team team = player.getTeam();
+            if (!(team instanceof ScorePlayerTeam)) {
+                continue;
+            }
+
+            ScorePlayerTeam scoreTeam = (ScorePlayerTeam) team;
+            String teamKey = scoreTeam.getRegisteredName();
+            if (teamKey == null) {
+                continue;
+            }
+
+            TeamDangerEntry summary = byTeam.get(teamKey);
+            if (summary == null) {
+                summary = new TeamDangerEntry(
+                        getTeamDisplayName(scoreTeam),
+                        getTeamColorPrefix(scoreTeam),
+                        teamKey.equals(ownTeamKey));
+                byTeam.put(teamKey, summary);
+            }
+
+            summary.totalPlayers++;
+
+            BedwarsStats stats = HypixelAPI.getCachedStats(player.getName());
+            if (stats == null || !stats.isLoaded()) {
+                continue;
+            }
+
+            double score = threatToScore(stats.getThreatLevel());
+            if (score <= 0.0) {
+                continue;
+            }
+
+            summary.playersWithKnownThreat++;
+            summary.totalThreatScore += score;
+        }
+
+        if (byTeam.size() < TEAM_DANGER_MIN_TEAMS) {
+            return new ArrayList<TeamDangerEntry>();
+        }
+
+        List<TeamDangerEntry> summaries = new ArrayList<TeamDangerEntry>(byTeam.values());
+        Collections.sort(summaries, new Comparator<TeamDangerEntry>() {
+            @Override
+            public int compare(TeamDangerEntry a, TeamDangerEntry b) {
+                double avgA = a.getAverageThreatScore();
+                double avgB = b.getAverageThreatScore();
+                if (avgA != avgB) {
+                    return Double.compare(avgB, avgA); // Higher danger first
+                }
+                return a.teamName.compareToIgnoreCase(b.teamName);
+            }
+        });
+
+        return summaries;
+    }
+
+    private static String getTeamDisplayName(ScorePlayerTeam team) {
+        String prefix = team.getColorPrefix();
+        if (prefix != null && !prefix.trim().isEmpty()) {
+            String stripped = EnumChatFormatting.getTextWithoutFormattingCodes(prefix);
+            if (stripped != null) {
+                stripped = stripped.replace("[", "").replace("]", "").trim();
+                if (!stripped.isEmpty()) {
+                    return stripped;
+                }
+            }
+        }
+        return team.getRegisteredName();
+    }
+
+    private static String getTeamColorPrefix(ScorePlayerTeam team) {
+        String prefix = team.getColorPrefix();
+        if (prefix == null || prefix.isEmpty()) {
+            return EnumChatFormatting.GRAY.toString();
+        }
+        return prefix;
+    }
+
+    private static String formatTeamDangerLine(TeamDangerEntry summary) {
+        String dangerLabel = summary.playersWithKnownThreat > 0
+                ? averageThreatLabel(summary.getAverageThreatScore())
+                : "UNKNOWN";
+        String dangerColor = dangerLabelColor(dangerLabel);
+
+        String ownTeamSuffix = summary.isOwnTeam
+                ? EnumChatFormatting.AQUA + " (You)"
+                : "";
+
+        return summary.teamColor + summary.teamName +
+                ownTeamSuffix +
+                EnumChatFormatting.GRAY + " - " +
+                dangerColor + "Avg " + dangerLabel +
+                EnumChatFormatting.GRAY + " (" +
+                summary.playersWithKnownThreat + "/" + summary.totalPlayers + " known)";
+    }
+
+    private static double threatToScore(BedwarsStats.ThreatLevel threatLevel) {
+        switch (threatLevel) {
+            case LOW:
+                return 1.0;
+            case MEDIUM:
+                return 2.0;
+            case HIGH:
+                return 3.0;
+            case EXTREME:
+                return 4.0;
+            default:
+                return 0.0;
+        }
+    }
+
+    private static String averageThreatLabel(double averageScore) {
+        if (averageScore >= 3.5) {
+            return "EXTREME";
+        }
+        if (averageScore >= 2.5) {
+            return "HIGH";
+        }
+        if (averageScore >= 1.5) {
+            return "MEDIUM";
+        }
+        return "LOW";
+    }
+
+    private static String dangerLabelColor(String dangerLabel) {
+        if ("EXTREME".equals(dangerLabel)) {
+            return EnumChatFormatting.DARK_RED.toString();
+        }
+        if ("HIGH".equals(dangerLabel)) {
+            return EnumChatFormatting.RED.toString();
+        }
+        if ("MEDIUM".equals(dangerLabel)) {
+            return EnumChatFormatting.YELLOW.toString();
+        }
+        if ("LOW".equals(dangerLabel)) {
+            return EnumChatFormatting.GREEN.toString();
+        }
+        return EnumChatFormatting.GRAY.toString();
     }
 
     /**
@@ -507,6 +1089,7 @@ public class ExampleMod {
                                 EnumChatFormatting.WHITE + playerName +
                                 EnumChatFormatting.GRAY + " detected " + (int) distance + " blocks away!";
                         mc.thePlayer.addChatMessage(new ChatComponentText(warningMessage));
+                        AudioCueManager.playCue(mc, AudioCueManager.CueType.INVISIBLE_NEARBY);
 
                         // Update cooldown
                         invisiblePlayerWarnings.put(playerName, currentTime);
@@ -522,27 +1105,30 @@ public class ExampleMod {
     private void scanForGenerators(Minecraft mc) {
         int scanRange = ModConfig.getGeneratorScanRange();
         BlockPos playerPos = mc.thePlayer.getPosition();
-
-        // Clear old generators that are now out of range
-        Iterator<Map.Entry<BlockPos, GeneratorEntry>> iterator = trackedGenerators.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<BlockPos, GeneratorEntry> entry = iterator.next();
-            if (playerPos.distanceSq(entry.getKey()) > scanRange * scanRange) {
-                iterator.remove();
-            }
-        }
+        Set<BlockPos> visibleGenerators = new HashSet<BlockPos>();
 
         // Scan for generators within range
-        for (int x = -scanRange; x <= scanRange; x += 4) {
-            for (int y = -20; y <= 20; y += 4) {
-                for (int z = -scanRange; z <= scanRange; z += 4) {
+        for (int x = -scanRange; x <= scanRange; x++) {
+            for (int y = -20; y <= 20; y++) {
+                for (int z = -scanRange; z <= scanRange; z++) {
                     BlockPos checkPos = playerPos.add(x, y, z);
+                    if (!mc.theWorld.isBlockLoaded(checkPos)) {
+                        continue;
+                    }
+
+                    // Generators should have open air above them.
+                    if (!mc.theWorld.isAirBlock(checkPos.up())) {
+                        continue;
+                    }
+
                     Block block = mc.theWorld.getBlockState(checkPos).getBlock();
 
                     boolean isDiamond = (block == Blocks.diamond_block);
                     boolean isEmerald = (block == Blocks.emerald_block);
 
                     if (isDiamond || isEmerald) {
+                        visibleGenerators.add(checkPos);
+
                         // Check if this generator is already tracked
                         GeneratorEntry existing = trackedGenerators.get(checkPos);
                         if (existing == null) {
@@ -550,39 +1136,76 @@ public class ExampleMod {
                             trackedGenerators.put(checkPos, existing);
                         }
 
-                        // Count resources on top
-                        existing.resourceCount = countResourcesNear(mc, checkPos, isDiamond);
+                        // Count resources around this generator and gate number display.
+                        GeneratorResourceScan scan = scanGeneratorResources(mc, checkPos, isDiamond);
+                        existing.resourceCount = scan.resourceCount;
+                        existing.hasDesignatedIngotOnTop = scan.hasDesignatedIngotOnTop;
                         existing.lastUpdate = System.currentTimeMillis();
                     }
                 }
             }
         }
+
+        // Remove stale entries (out of range or no longer valid generator blocks).
+        Iterator<Map.Entry<BlockPos, GeneratorEntry>> iterator = trackedGenerators.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<BlockPos, GeneratorEntry> entry = iterator.next();
+            if (playerPos.distanceSq(entry.getKey()) > scanRange * scanRange || !visibleGenerators.contains(entry.getKey())) {
+                iterator.remove();
+            }
+        }
     }
 
     /**
-     * Count resource items near a generator block
+     * Count designated resource items near a generator block.
      */
-    private int countResourcesNear(Minecraft mc, BlockPos generatorPos, boolean isDiamond) {
+    private GeneratorResourceScan scanGeneratorResources(Minecraft mc, BlockPos generatorPos, boolean isDiamond) {
         int count = 0;
+        boolean hasDesignatedIngotOnTop = false;
+        double centerX = generatorPos.getX() + 0.5D;
+        double centerY = generatorPos.getY() + 1.0D;
+        double centerZ = generatorPos.getZ() + 0.5D;
 
         for (Entity entity : mc.theWorld.loadedEntityList) {
-            if (entity instanceof EntityItem) {
-                EntityItem item = (EntityItem) entity;
+            if (!(entity instanceof EntityItem)) {
+                continue;
+            }
 
-                // Check if item is near the generator (within 3 blocks)
-                double distance = Math.sqrt(entity.getPosition().distanceSq(generatorPos));
-                if (distance <= 3.0) {
-                    // Check if it's the right item type
-                    if (isDiamond && item.getEntityItem().getItem() == Items.diamond) {
-                        count += item.getEntityItem().stackSize;
-                    } else if (!isDiamond && item.getEntityItem().getItem() == Items.emerald) {
-                        count += item.getEntityItem().stackSize;
-                    }
+            EntityItem item = (EntityItem) entity;
+            if (!isDesignatedGeneratorItem(item, isDiamond)) {
+                continue;
+            }
+
+            double dx = Math.abs(item.posX - centerX);
+            double dy = Math.abs(item.posY - centerY);
+            double dz = Math.abs(item.posZ - centerZ);
+
+            // "On top" means above the generator column where the designated item spawns.
+            if (!hasDesignatedIngotOnTop && dx <= 0.75D && dz <= 0.75D) {
+                double relativeY = item.posY - generatorPos.getY();
+                if (relativeY >= 0.0D && relativeY <= 3.0D) {
+                    hasDesignatedIngotOnTop = true;
                 }
+            }
+
+            // Count designated ingots in a 3-block horizontal/vertical box with no minimum distance.
+            if (dx <= 3.0D && dy <= 3.0D && dz <= 3.0D) {
+                count += item.getEntityItem().stackSize;
             }
         }
 
-        return count;
+        return new GeneratorResourceScan(count, hasDesignatedIngotOnTop);
+    }
+
+    private boolean isDesignatedGeneratorItem(EntityItem item, boolean isDiamond) {
+        if (item == null || item.getEntityItem() == null || item.getEntityItem().getItem() == null) {
+            return false;
+        }
+
+        if (isDiamond) {
+            return item.getEntityItem().getItem() == Items.diamond;
+        }
+        return item.getEntityItem().getItem() == Items.emerald;
     }
 
     /**
@@ -823,7 +1446,10 @@ public class ExampleMod {
         // Create label text
         String icon = generator.isDiamond ? "💎" : "💚";
         String color = generator.isDiamond ? EnumChatFormatting.AQUA.toString() : EnumChatFormatting.GREEN.toString();
-        String text = color + icon + " " + generator.resourceCount;
+        String text = color + icon;
+        if (generator.hasDesignatedIngotOnTop) {
+            text = text + " " + generator.resourceCount;
+        }
 
         // Scale based on distance for visibility
         float distance = (float) Math.sqrt(distSq);
@@ -966,13 +1592,50 @@ public class ExampleMod {
         BlockPos position;
         boolean isDiamond; // true = diamond, false = emerald
         int resourceCount;
+        boolean hasDesignatedIngotOnTop;
         long lastUpdate;
 
         GeneratorEntry(BlockPos pos, boolean diamond) {
             this.position = pos;
             this.isDiamond = diamond;
             this.resourceCount = 0;
+            this.hasDesignatedIngotOnTop = false;
             this.lastUpdate = System.currentTimeMillis();
+        }
+    }
+
+    private static class GeneratorResourceScan {
+        int resourceCount;
+        boolean hasDesignatedIngotOnTop;
+
+        GeneratorResourceScan(int resourceCount, boolean hasDesignatedIngotOnTop) {
+            this.resourceCount = resourceCount;
+            this.hasDesignatedIngotOnTop = hasDesignatedIngotOnTop;
+        }
+    }
+
+    /**
+     * Aggregated danger data for a Bedwars team.
+     */
+    private static class TeamDangerEntry {
+        String teamName;
+        String teamColor;
+        boolean isOwnTeam;
+        int totalPlayers;
+        int playersWithKnownThreat;
+        double totalThreatScore;
+
+        TeamDangerEntry(String teamName, String teamColor, boolean isOwnTeam) {
+            this.teamName = teamName;
+            this.teamColor = teamColor;
+            this.isOwnTeam = isOwnTeam;
+        }
+
+        double getAverageThreatScore() {
+            if (playersWithKnownThreat == 0) {
+                return 0.0;
+            }
+            return totalThreatScore / playersWithKnownThreat;
         }
     }
 
@@ -988,7 +1651,7 @@ public class ExampleMod {
 
         @Override
         public String getCommandUsage(ICommandSender sender) {
-            return "/bw <setkey|lookup|all|info|blacklist|history|status|clear> [args]";
+            return "/bw <setkey|lookup|all|info|autoplay|rejoin|blacklist|history|status|clear> [args]";
         }
 
         @Override
@@ -1005,6 +1668,7 @@ public class ExampleMod {
                 sendMessage(sender, "/bw all - Check stats for everyone in the lobby");
                 sendMessage(sender, "/bw info - Show threats and history players in lobby");
                 sendMessage(sender, "/bw autoplay <ones|twos|threes|fours|stop> - Auto-queue until safe lobby");
+                sendMessage(sender, "/bw rejoin - Re-run game-start setup (bed tracking, generators, player scan)");
                 sendMessage(sender, "/bw blacklist <add|remove|list> [player] [reason] - Manage blacklist");
                 sendMessage(sender, "/bw history [player] - View encounter history");
                 sendMessage(sender, "/bw status - Show cache and rate limit info");
@@ -1142,6 +1806,11 @@ public class ExampleMod {
                 sendMessage(sender, String.format("Blacklist: %d players", db.getBlacklistSize()));
                 sendMessage(sender, String.format("History: %d unique players", db.getHistorySize()));
                 sendMessage(sender, "In Bedwars lobby: " + (inBedwarsLobby ? "Yes" : "No"));
+                sendMessage(sender, "Rush predictor: " + (ModConfig.isRushPredictorEnabled() ? "Enabled" : "Disabled"));
+                if (ModConfig.isRushPredictorEnabled()) {
+                    String etaText = lastPredictedRushEtaSeconds > 0 ? (lastPredictedRushEtaSeconds + "s") : "N/A";
+                    sendMessage(sender, "Predicted first rush: " + etaText + " | Map: " + lastDetectedMapName);
+                }
 
             } else if (subCommand.equals("clear")) {
                 HypixelAPI.clearCache();
@@ -1152,6 +1821,9 @@ public class ExampleMod {
 
             } else if (subCommand.equals("autoplay")) {
                 handleAutoplayCommand(sender, args);
+
+            } else if (subCommand.equals("rejoin")) {
+                handleRejoinCommand(sender);
 
             } else {
                 sendMessage(sender, EnumChatFormatting.RED + "Unknown command. Use /bw for help.");
@@ -1165,7 +1837,7 @@ public class ExampleMod {
             if (args.length == 1) {
                 // Autocomplete subcommands
                 return getListOfStringsMatchingLastWord(args, "setkey", "lookup", "all", "info", "autoplay",
-                        "blacklist", "history",
+                        "rejoin", "blacklist", "history",
                         "status", "clear");
             }
 
@@ -1222,6 +1894,9 @@ public class ExampleMod {
 
             List<String> threats = new ArrayList<String>();
             List<String> historyPlayers = new ArrayList<String>();
+            List<TeamDangerEntry> teamDangerSummaries = ModConfig.isTeamDangerSummaryEnabled()
+                    ? buildTeamDangerSummary(mc)
+                    : new ArrayList<TeamDangerEntry>();
 
             sendMessage(sender, EnumChatFormatting.GOLD + "=== Lobby Info ===");
 
@@ -1281,6 +1956,15 @@ public class ExampleMod {
                 sendMessage(sender, EnumChatFormatting.GREEN + "✓ No threats detected");
             }
 
+            if (!teamDangerSummaries.isEmpty()) {
+                sendMessage(sender, EnumChatFormatting.RED + "Team Danger:");
+                for (TeamDangerEntry summary : teamDangerSummaries) {
+                    sendMessage(sender, "  " + formatTeamDangerLine(summary));
+                }
+            } else {
+                sendMessage(sender, EnumChatFormatting.GRAY + "Team danger summary unavailable (teams not assigned)");
+            }
+
             // Display history players
             if (!historyPlayers.isEmpty()) {
                 sendMessage(sender, EnumChatFormatting.AQUA + "📜 History Players (" + historyPlayers.size() + "):");
@@ -1335,11 +2019,24 @@ public class ExampleMod {
                 } else {
                     sendMessage(sender,
                             EnumChatFormatting.GOLD + "=== Blacklisted Players (" + entries.size() + ") ===");
+                    long now = System.currentTimeMillis();
                     for (PlayerDatabase.BlacklistEntry entry : entries) {
-                        long daysAgo = (System.currentTimeMillis() - entry.addedAt) / (1000 * 60 * 60 * 24);
-                        sendMessage(sender, EnumChatFormatting.RED + entry.playerName +
+                        long daysAgo = (now - entry.addedAt) / (1000 * 60 * 60 * 24);
+                        String sourceLabel = entry.isAuto() ? "AUTO" : "MANUAL";
+                        String sourceColor = entry.isAuto()
+                                ? EnumChatFormatting.LIGHT_PURPLE.toString()
+                                : EnumChatFormatting.AQUA.toString();
+
+                        String expiryInfo = "";
+                        if (entry.isAuto() && entry.expiresAt > 0) {
+                            long daysLeft = Math.max(0L, (entry.expiresAt - now) / (1000 * 60 * 60 * 24));
+                            expiryInfo = EnumChatFormatting.GRAY + " | expires in " + daysLeft + "d";
+                        }
+
+                        sendMessage(sender, sourceColor + "[" + sourceLabel + "] " +
+                                EnumChatFormatting.RED + entry.playerName +
                                 EnumChatFormatting.GRAY + " - " + entry.reason +
-                                " (" + daysAgo + " days ago)");
+                                " (" + daysAgo + " days ago)" + expiryInfo);
                     }
                 }
 
@@ -1439,6 +2136,23 @@ public class ExampleMod {
             Minecraft mc = Minecraft.getMinecraft();
             if (mc.thePlayer != null) {
                 mc.thePlayer.sendChatMessage(playCommand);
+            }
+        }
+
+        private void handleRejoinCommand(ICommandSender sender) {
+            Minecraft mc = Minecraft.getMinecraft();
+            if (mc.theWorld == null || mc.thePlayer == null) {
+                sendMessage(sender, EnumChatFormatting.RED + "You must be in a world to use this command.");
+                return;
+            }
+
+            boolean wasTracking = inBedwarsLobby;
+            activateBedwarsLobbyTracking(mc);
+
+            if (wasTracking) {
+                sendMessage(sender, EnumChatFormatting.GREEN + "Re-ran Bedwars startup flow for this match.");
+            } else {
+                sendMessage(sender, EnumChatFormatting.GREEN + "Started Bedwars tracking as if you just joined.");
             }
         }
 
