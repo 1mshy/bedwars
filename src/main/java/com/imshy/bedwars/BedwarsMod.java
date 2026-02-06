@@ -47,8 +47,8 @@ import net.minecraft.block.Block;
 import net.minecraft.scoreboard.ScorePlayerTeam;
 import net.minecraft.scoreboard.Team;
 
-@Mod(modid = ExampleMod.MODID, version = ExampleMod.VERSION, guiFactory = "com.imshy.bedwars.ModGuiFactory")
-public class ExampleMod {
+@Mod(modid = BedwarsMod.MODID, version = BedwarsMod.VERSION, guiFactory = "com.imshy.bedwars.ModGuiFactory")
+public class BedwarsMod {
     public static final String MODID = "bedwars";
     public static final String VERSION = "1.0";
 
