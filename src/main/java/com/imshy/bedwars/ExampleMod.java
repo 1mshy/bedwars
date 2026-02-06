@@ -406,7 +406,7 @@ public class ExampleMod {
     }
 
     /**
-     * Renders the player names on screen
+     * Keeps the recent join cache trimmed. HUD rendering for lobby threat sections is disabled.
      */
     @SubscribeEvent
     public void onRenderOverlay(RenderGameOverlayEvent.Post event) {
@@ -425,64 +425,6 @@ public class ExampleMod {
                 if (currentTime - iterator.next().timestamp > DISPLAY_DURATION) {
                     iterator.remove();
                 }
-            }
-        }
-
-        List<TeamDangerEntry> teamDangerSummaries = ModConfig.isTeamDangerSummaryEnabled()
-                ? buildTeamDangerSummary(mc)
-                : new ArrayList<TeamDangerEntry>();
-
-        if (recentJoins.isEmpty() && teamDangerSummaries.isEmpty()) {
-            return;
-        }
-
-        FontRenderer fontRenderer = mc.fontRendererObj;
-
-        int x = 5;
-        int y = 50;
-        int lineHeight = 12;
-
-        if (!recentJoins.isEmpty()) {
-            // Draw recent players header
-            fontRenderer.drawStringWithShadow(
-                    EnumChatFormatting.GOLD + "Recent Players:",
-                    x, y, 0xFFFFFF);
-            y += lineHeight + 2;
-
-            // Draw player names with stats
-            synchronized (recentJoins) {
-                for (PlayerJoinEntry entry : recentJoins) {
-                    String displayText;
-
-                    if (entry.stats != null && entry.stats.isLoaded()) {
-                        displayText = entry.stats.getThreatColor() + entry.playerName + " " +
-                                entry.stats.getDisplayString();
-                    } else if (entry.stats != null && entry.stats.hasError()) {
-                        displayText = EnumChatFormatting.GRAY + entry.playerName + " [Error]";
-                    } else {
-                        displayText = EnumChatFormatting.WHITE + entry.playerName +
-                                EnumChatFormatting.GRAY + " [Loading...]";
-                    }
-
-                    fontRenderer.drawStringWithShadow(displayText, x, y, 0xFFFFFF);
-                    y += lineHeight;
-                }
-            }
-
-            if (!teamDangerSummaries.isEmpty()) {
-                y += 4;
-            }
-        }
-
-        if (!teamDangerSummaries.isEmpty()) {
-            fontRenderer.drawStringWithShadow(
-                    EnumChatFormatting.RED + "Team Danger:",
-                    x, y, 0xFFFFFF);
-            y += lineHeight + 2;
-
-            for (TeamDangerEntry summary : teamDangerSummaries) {
-                fontRenderer.drawStringWithShadow(formatTeamDangerLine(summary), x, y, 0xFFFFFF);
-                y += lineHeight;
             }
         }
     }
