@@ -73,6 +73,9 @@ public class ExampleMod {
     private static final int BED_SCAN_VERTICAL_RANGE = 8;
     private static long gameStartTime = 0; // When the game started
     private static final Map<String, Long> lastBedWarningTime = new HashMap<String, Long>();
+    private static final Set<String> inferredTeammateUuids = new HashSet<String>();
+    private static final double TEAMMATE_SPAWN_RADIUS_BLOCKS = 10.0;
+    private static final long TEAMMATE_SPAWN_CAPTURE_WINDOW_MS = 2000; // First 1-2 seconds
 
     // Autoplay system
     private static boolean autoplayEnabled = false;
@@ -462,6 +465,8 @@ public class ExampleMod {
 
         long currentTime = System.currentTimeMillis();
 
+        captureEarlySpawnTeammates(mc, currentTime);
+
         // Initialize bed tracking if chat arrived before player entity was ready
         if (fallbackBedPosition == null) {
             startBedTracking(mc, currentTime);
@@ -515,12 +520,15 @@ public class ExampleMod {
                 continue;
             }
 
+            String playerName = player.getName();
+            if (isWatchdogBotName(playerName)) {
+                continue;
+            }
+
             // Skip teammates
             if (isTeammate(mc, mc.thePlayer, player)) {
                 continue;
             }
-
-            String playerName = player.getName();
 
             // Calculate distance to nearest tracked bed block
             double distance = getDistanceToNearestTrackedBed(player.getPosition());
@@ -641,6 +649,7 @@ public class ExampleMod {
         bedDetectionStartTime = 0;
         lastBedDetectionAttempt = 0;
         lastBedWarningTime.clear();
+        inferredTeammateUuids.clear();
         resetRushPredictorState();
     }
 
@@ -721,8 +730,6 @@ public class ExampleMod {
             return -1.0;
         }
 
-        String ownTeamKey = getPlayerTeamKey(mc.thePlayer);
-
         BlockPos referencePos = fallbackBedPosition;
         if (!playerBedBlocks.isEmpty()) {
             referencePos = playerBedBlocks.get(0);
@@ -736,8 +743,11 @@ public class ExampleMod {
                 continue;
             }
 
-            String playerTeamKey = getPlayerTeamKey(player);
-            if (ownTeamKey != null && ownTeamKey.equals(playerTeamKey)) {
+            if (isWatchdogBotName(player.getName())) {
+                continue;
+            }
+
+            if (isTeammate(mc, mc.thePlayer, player)) {
                 continue;
             }
 
@@ -762,9 +772,49 @@ public class ExampleMod {
         return null;
     }
 
+    private static void captureEarlySpawnTeammates(Minecraft mc, long currentTime) {
+        if (mc == null || mc.theWorld == null || mc.thePlayer == null) {
+            return;
+        }
+        if (!isWithinSpawnTeammateWindow(currentTime)) {
+            return;
+        }
+
+        double teammateRadiusSq = TEAMMATE_SPAWN_RADIUS_BLOCKS * TEAMMATE_SPAWN_RADIUS_BLOCKS;
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            if (player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+                continue;
+            }
+            if (isWatchdogBotName(player.getName())) {
+                continue;
+            }
+
+            if (mc.thePlayer.getDistanceSqToEntity(player) <= teammateRadiusSq) {
+                inferredTeammateUuids.add(player.getUniqueID().toString());
+            }
+        }
+    }
+
     private static boolean isTeammate(Minecraft mc, EntityPlayer self, EntityPlayer other) {
         if (self == null || other == null) {
             return false;
+        }
+
+        if (self.getUniqueID().equals(other.getUniqueID())) {
+            return true;
+        }
+
+        if (inferredTeammateUuids.contains(other.getUniqueID().toString())) {
+            return true;
+        }
+
+        long currentTime = System.currentTimeMillis();
+        if (isWithinSpawnTeammateWindow(currentTime)) {
+            double teammateRadiusSq = TEAMMATE_SPAWN_RADIUS_BLOCKS * TEAMMATE_SPAWN_RADIUS_BLOCKS;
+            if (self.getDistanceSqToEntity(other) <= teammateRadiusSq) {
+                inferredTeammateUuids.add(other.getUniqueID().toString());
+                return true;
+            }
         }
 
         Character selfTabColor = getTabNamePrimaryColorCode(mc, self);
@@ -780,6 +830,28 @@ public class ExampleMod {
         String selfTeamKey = getPlayerTeamKey(self);
         String otherTeamKey = getPlayerTeamKey(other);
         return selfTeamKey != null && selfTeamKey.equals(otherTeamKey);
+    }
+
+    private static boolean isWithinSpawnTeammateWindow(long currentTime) {
+        return inBedwarsLobby &&
+                gameStartTime > 0 &&
+                (currentTime - gameStartTime) <= TEAMMATE_SPAWN_CAPTURE_WINDOW_MS;
+    }
+
+    private static boolean isWatchdogBotName(String playerName) {
+        if (playerName == null || playerName.length() != 10) {
+            return false;
+        }
+
+        for (int i = 0; i < playerName.length(); i++) {
+            char c = playerName.charAt(i);
+            boolean isDigit = c >= '0' && c <= '9';
+            boolean isLowercaseLetter = c >= 'a' && c <= 'z';
+            if (!isDigit && !isLowercaseLetter) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static Character getTabNamePrimaryColorCode(Minecraft mc, EntityPlayer player) {
