@@ -188,6 +188,7 @@ public class BedwarsRuntime {
                 state.inBedwarsLobby = false;
                 state.disconnectedFromGame = false;
                 state.chatDetectedPlayers.clear();
+                state.chatDetectedStartTime = 0;
                 matchThreatService.clearBedTrackingState();
                 lobbyTrackerService.clearRecentJoins();
                 return;
@@ -214,6 +215,7 @@ public class BedwarsRuntime {
                 state.inBedwarsLobby = false;
                 state.disconnectedFromGame = false;
                 state.chatDetectedPlayers.clear();
+                state.chatDetectedStartTime = 0;
                 matchThreatService.clearBedTrackingState();
                 lobbyTrackerService.clearRecentJoins();
                 return;
@@ -221,10 +223,13 @@ public class BedwarsRuntime {
         }
 
         if (message.contains("You left.") || message.contains("Sending you to")) {
+            synchronized (state.chatDetectedPlayers) {
+                state.chatDetectedPlayers.clear();
+            }
+            state.chatDetectedStartTime = 0;
             if (state.inBedwarsLobby) {
                 state.inBedwarsLobby = false;
                 state.disconnectedFromGame = false;
-                state.chatDetectedPlayers.clear();
                 matchThreatService.clearBedTrackingState();
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.UNKNOWN);
                 PlayerDatabase.getInstance().clearCurrentGame();
@@ -286,6 +291,15 @@ public class BedwarsRuntime {
         lobbyTrackerService.trimRecentJoins();
 
         if (ModConfig.isHudEnabled()) {
+            // Auto-expire detected players after 16 seconds
+            if (state.chatDetectedStartTime > 0
+                    && System.currentTimeMillis() - state.chatDetectedStartTime > 16000) {
+                synchronized (state.chatDetectedPlayers) {
+                    state.chatDetectedPlayers.clear();
+                }
+                state.chatDetectedStartTime = 0;
+            }
+
             boolean hasDetectedPlayers;
             synchronized (state.chatDetectedPlayers) {
                 hasDetectedPlayers = !state.chatDetectedPlayers.isEmpty();
@@ -528,6 +542,9 @@ public class BedwarsRuntime {
                     if (!alreadyTracked) {
                         state.chatDetectedPlayers.add(
                                 new ChatDetectedPlayer(chatterName, stats));
+                        if (state.chatDetectedStartTime == 0) {
+                            state.chatDetectedStartTime = System.currentTimeMillis();
+                        }
                     }
                 }
 
@@ -609,6 +626,9 @@ public class BedwarsRuntime {
                 }
             }
             state.chatDetectedPlayers.add(new ChatDetectedPlayer(playerName, stats));
+            if (state.chatDetectedStartTime == 0) {
+                state.chatDetectedStartTime = System.currentTimeMillis();
+            }
         }
     }
 

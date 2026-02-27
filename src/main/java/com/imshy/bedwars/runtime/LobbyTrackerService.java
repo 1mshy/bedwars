@@ -28,6 +28,8 @@ public class LobbyTrackerService {
         state.disconnectTime = 0;
         state.trackedGenerators.clear();
         state.lastGeneratorScan = 0;
+        state.chatDetectedPlayers.clear();
+        state.chatDetectedStartTime = 0;
 
         clearRecentJoins();
 

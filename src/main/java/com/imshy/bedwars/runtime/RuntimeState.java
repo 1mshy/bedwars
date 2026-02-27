@@ -60,4 +60,5 @@ final class RuntimeState {
     String lastDetectedMapName = "Unknown";
 
     final List<ChatDetectedPlayer> chatDetectedPlayers = new ArrayList<ChatDetectedPlayer>();
+    long chatDetectedStartTime = 0;
 }
