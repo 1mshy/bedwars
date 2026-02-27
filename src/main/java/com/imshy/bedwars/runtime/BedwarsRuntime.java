@@ -285,10 +285,16 @@ public class BedwarsRuntime {
 
         lobbyTrackerService.trimRecentJoins();
 
-        if (state.inBedwarsLobby && ModConfig.isHudEnabled()) {
-            ScaledResolution resolution = new ScaledResolution(mc);
-            hudRenderer.render(resolution, mc, teamDangerAnalyzer, worldScanService, state.gameStartTime,
-                    state.chatDetectedPlayers);
+        if (ModConfig.isHudEnabled()) {
+            boolean hasDetectedPlayers;
+            synchronized (state.chatDetectedPlayers) {
+                hasDetectedPlayers = !state.chatDetectedPlayers.isEmpty();
+            }
+            if (state.inBedwarsLobby || hasDetectedPlayers) {
+                ScaledResolution resolution = new ScaledResolution(mc);
+                hudRenderer.render(resolution, mc, teamDangerAnalyzer, worldScanService, state.gameStartTime,
+                        state.chatDetectedPlayers);
+            }
         }
     }
 
@@ -490,7 +496,9 @@ public class BedwarsRuntime {
             return;
         }
 
-        if (HypixelAPI.getCachedStats(chatterName) != null) {
+        BedwarsStats cachedStats = HypixelAPI.getCachedStats(chatterName);
+        if (cachedStats != null) {
+            addToChatDetectedIfEligible(chatterName, cachedStats);
             return;
         }
 
@@ -508,34 +516,29 @@ public class BedwarsRuntime {
             public void onStatsLoaded(BedwarsStats stats) {
                 BedwarsStats.ThreatLevel threat = stats.getThreatLevel();
 
-                if (threat == BedwarsStats.ThreatLevel.MEDIUM ||
-                        threat == BedwarsStats.ThreatLevel.HIGH ||
-                        threat == BedwarsStats.ThreatLevel.EXTREME) {
-
-                    // Add to persistent HUD list (deduplicate)
-                    synchronized (state.chatDetectedPlayers) {
-                        boolean alreadyTracked = false;
-                        for (ChatDetectedPlayer cdp : state.chatDetectedPlayers) {
-                            if (cdp.name.equals(chatterName)) {
-                                alreadyTracked = true;
-                                break;
-                            }
-                        }
-                        if (!alreadyTracked) {
-                            state.chatDetectedPlayers.add(
-                                    new ChatDetectedPlayer(chatterName, stats));
+                // Add to persistent HUD list (deduplicate)
+                synchronized (state.chatDetectedPlayers) {
+                    boolean alreadyTracked = false;
+                    for (ChatDetectedPlayer cdp : state.chatDetectedPlayers) {
+                        if (cdp.name.equals(chatterName)) {
+                            alreadyTracked = true;
+                            break;
                         }
                     }
+                    if (!alreadyTracked) {
+                        state.chatDetectedPlayers.add(
+                                new ChatDetectedPlayer(chatterName, stats));
+                    }
+                }
 
-                    // Fallback to chat message when HUD is disabled
-                    if (!ModConfig.isHudEnabled() || !ModConfig.isHudChatDetectedEnabled()) {
-                        Minecraft mc = Minecraft.getMinecraft();
-                        if (mc.thePlayer != null) {
-                            mc.thePlayer.addChatMessage(new ChatComponentText(
-                                    EnumChatFormatting.GREEN + "[BW] " +
-                                            stats.getThreatColor() + chatterName + " " +
-                                            stats.getDisplayString()));
-                        }
+                // Fallback to chat message when HUD is disabled
+                if (!ModConfig.isHudEnabled() || !ModConfig.isHudChatDetectedEnabled()) {
+                    Minecraft mc = Minecraft.getMinecraft();
+                    if (mc.thePlayer != null) {
+                        mc.thePlayer.addChatMessage(new ChatComponentText(
+                                EnumChatFormatting.GREEN + "[BW] " +
+                                        stats.getThreatColor() + chatterName + " " +
+                                        stats.getDisplayString()));
                     }
                 }
 
@@ -596,6 +599,17 @@ public class BedwarsRuntime {
                 System.out.println("[BedwarsStats] Chat lookup error for " + chatterName + ": " + error);
             }
         });
+    }
+
+    private void addToChatDetectedIfEligible(String playerName, BedwarsStats stats) {
+        synchronized (state.chatDetectedPlayers) {
+            for (ChatDetectedPlayer cdp : state.chatDetectedPlayers) {
+                if (cdp.name.equals(playerName)) {
+                    return;
+                }
+            }
+            state.chatDetectedPlayers.add(new ChatDetectedPlayer(playerName, stats));
+        }
     }
 
     private void handleReconnectMessage(Minecraft mc, String message) {
