@@ -22,6 +22,7 @@ final class RuntimeState {
     int joinMessageBurstCount = 0;
     long lastPartyWarningTick = -1;
     long lastPartyAutoplaySwapTick = -1;
+    boolean joinBurstContainsMainUser = false;
 
     final List<BlockPos> playerBedBlocks = new ArrayList<BlockPos>();
     BlockPos fallbackBedPosition = null;

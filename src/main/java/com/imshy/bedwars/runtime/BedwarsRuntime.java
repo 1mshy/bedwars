@@ -20,11 +20,14 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 
 import java.util.List;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class BedwarsRuntime {
     private static final Pattern LOBBY_JOIN_MESSAGE_PATTERN =
             Pattern.compile("^[A-Za-z0-9_]{1,16} has joined \\(\\d+/\\d+\\)[.!]?$");
+    private static final Pattern CHAT_MESSAGE_PATTERN =
+            Pattern.compile("^(?:\\[[A-Z+]+\\] )?([A-Za-z0-9_]{1,16}): .+$");
     private static final int PARTY_JOIN_WARNING_THRESHOLD = 4;
 
     private final RuntimeState state;
@@ -106,6 +109,7 @@ public class BedwarsRuntime {
         Minecraft mc = Minecraft.getMinecraft();
 
         trackJoinMessageBurst(mc, message);
+        handleChatMessageStatLookup(mc, message);
 
         if (message.contains("Protect your bed and destroy the enemy beds.")) {
             if (!state.inBedwarsLobby) {
@@ -316,10 +320,6 @@ public class BedwarsRuntime {
             return;
         }
 
-        if (isAutoplayEnabled()) {
-            mc.thePlayer.addChatMessage(new ChatComponentText(message));
-        }
-
         if (!LOBBY_JOIN_MESSAGE_PATTERN.matcher(message).matches()) {
             return;
         }
@@ -327,11 +327,18 @@ public class BedwarsRuntime {
         if (state.joinMessageBurstTick != state.clientTickCounter) {
             state.joinMessageBurstTick = state.clientTickCounter;
             state.joinMessageBurstCount = 0;
+            state.joinBurstContainsMainUser = false;
+        }
+
+        String joinerName = message.split(" has joined")[0];
+        if (joinerName.equals(mc.thePlayer.getName())) {
+            state.joinBurstContainsMainUser = true;
         }
 
         state.joinMessageBurstCount++;
 
         if (state.joinMessageBurstCount >= PARTY_JOIN_WARNING_THRESHOLD &&
+                !state.joinBurstContainsMainUser &&
                 state.lastPartyWarningTick != state.clientTickCounter) {
             state.lastPartyWarningTick = state.clientTickCounter;
             mc.thePlayer.addChatMessage(new ChatComponentText(
@@ -342,6 +349,7 @@ public class BedwarsRuntime {
         }
 
         if (state.joinMessageBurstCount >= PARTY_JOIN_WARNING_THRESHOLD &&
+                !state.joinBurstContainsMainUser &&
                 state.autoplayEnabled &&
                 "fours".equals(state.autoplayMode) &&
                 state.lastPartyAutoplaySwapTick != state.clientTickCounter) {
@@ -351,5 +359,75 @@ public class BedwarsRuntime {
                             EnumChatFormatting.YELLOW + state.joinMessageBurstCount +
                             EnumChatFormatting.GRAY + " joins in the same tick.");
         }
+    }
+
+    private void handleChatMessageStatLookup(Minecraft mc, String message) {
+        if (mc == null || mc.thePlayer == null || message == null || !state.inBedwarsLobby) {
+            return;
+        }
+
+        Matcher matcher = CHAT_MESSAGE_PATTERN.matcher(message);
+        if (!matcher.matches()) {
+            return;
+        }
+
+        final String chatterName = matcher.group(1);
+
+        if (chatterName.equals(mc.thePlayer.getName())) {
+            return;
+        }
+
+        if (HypixelAPI.getCachedStats(chatterName) != null) {
+            return;
+        }
+
+        if (!HypixelAPI.hasApiKey()) {
+            return;
+        }
+
+        HypixelAPI.fetchStatsAsync(chatterName, new HypixelAPI.StatsCallback() {
+            @Override
+            public void onStatsLoaded(BedwarsStats stats) {
+                BedwarsStats.ThreatLevel threat = stats.getThreatLevel();
+
+                if (threat == BedwarsStats.ThreatLevel.MEDIUM ||
+                        threat == BedwarsStats.ThreatLevel.HIGH ||
+                        threat == BedwarsStats.ThreatLevel.EXTREME) {
+
+                    Minecraft mc = Minecraft.getMinecraft();
+                    if (mc.thePlayer != null) {
+                        mc.thePlayer.addChatMessage(new ChatComponentText(
+                                EnumChatFormatting.GREEN + "[BW] " +
+                                        stats.getThreatColor() + chatterName + " " +
+                                        stats.getDisplayString()));
+                    }
+                }
+
+                if (state.autoplayEnabled) {
+                    String maxThreatLevel = ModConfig.getAutoplayMaxThreatLevel();
+                    boolean isThreat = false;
+
+                    if (maxThreatLevel.equals("HIGH")) {
+                        isThreat = (threat == BedwarsStats.ThreatLevel.HIGH ||
+                                threat == BedwarsStats.ThreatLevel.EXTREME);
+                    } else if (maxThreatLevel.equals("EXTREME")) {
+                        isThreat = (threat == BedwarsStats.ThreatLevel.EXTREME);
+                    }
+
+                    if (isThreat) {
+                        Minecraft mcInner = Minecraft.getMinecraft();
+                        worldScanService.requeueAutoplay(mcInner,
+                                EnumChatFormatting.RED + "Chat threat detected: " +
+                                        EnumChatFormatting.YELLOW + chatterName +
+                                        " (" + threat.name() + ")");
+                    }
+                }
+            }
+
+            @Override
+            public void onError(String error) {
+                System.out.println("[BedwarsStats] Chat lookup error for " + chatterName + ": " + error);
+            }
+        });
     }
 }

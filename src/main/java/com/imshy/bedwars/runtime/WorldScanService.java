@@ -91,7 +91,7 @@ public class WorldScanService {
             state.recentJoins.clear();
         }
 
-        mc.thePlayer.sendChatMessage("/lobby");
+        mc.thePlayer.sendChatMessage("/l");
 
         new Thread(new Runnable() {
             @Override
@@ -99,11 +99,19 @@ public class WorldScanService {
                 try {
                     Thread.sleep(1500);
                     Minecraft mc = Minecraft.getMinecraft();
-                    if (mc.thePlayer != null && state.autoplayEnabled) {
-                        String playCommand = GAME_MODE_COMMANDS.get(state.autoplayMode);
-                        if (playCommand != null) {
-                            mc.thePlayer.sendChatMessage(playCommand);
-                        }
+                    if (mc.thePlayer == null || !state.autoplayEnabled) return;
+
+                    mc.thePlayer.sendChatMessage("/p warp");
+                    Thread.sleep(500);
+
+                    if (mc.thePlayer == null || !state.autoplayEnabled) return;
+                    mc.thePlayer.sendChatMessage("/p warp");
+                    Thread.sleep(1500);
+
+                    if (mc.thePlayer == null || !state.autoplayEnabled) return;
+                    String playCommand = GAME_MODE_COMMANDS.get(state.autoplayMode);
+                    if (playCommand != null) {
+                        mc.thePlayer.sendChatMessage(playCommand);
                     }
                 } catch (InterruptedException e) {
                     e.printStackTrace();
