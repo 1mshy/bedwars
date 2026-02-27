@@ -132,16 +132,19 @@ public class WorldScanService {
                 try {
                     Thread.sleep(1500);
                     Minecraft mc = Minecraft.getMinecraft();
-                    if (mc.thePlayer == null || !state.autoplayEnabled) return;
+                    if (mc.thePlayer == null || !state.autoplayEnabled)
+                        return;
 
                     mc.thePlayer.sendChatMessage("/p warp");
                     Thread.sleep(500);
 
-                    if (mc.thePlayer == null || !state.autoplayEnabled) return;
+                    if (mc.thePlayer == null || !state.autoplayEnabled)
+                        return;
                     mc.thePlayer.sendChatMessage("/p warp");
                     Thread.sleep(1500);
 
-                    if (mc.thePlayer == null || !state.autoplayEnabled) return;
+                    if (mc.thePlayer == null || !state.autoplayEnabled)
+                        return;
                     String playCommand = GAME_MODE_COMMANDS.get(state.autoplayMode);
                     if (playCommand != null) {
                         mc.thePlayer.sendChatMessage(playCommand);
@@ -226,7 +229,8 @@ public class WorldScanService {
         Iterator<Map.Entry<BlockPos, GeneratorEntry>> iterator = state.trackedGenerators.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<BlockPos, GeneratorEntry> entry = iterator.next();
-            if (playerPos.distanceSq(entry.getKey()) > scanRange * scanRange || !visibleGenerators.contains(entry.getKey())) {
+            if (playerPos.distanceSq(entry.getKey()) > scanRange * scanRange
+                    || !visibleGenerators.contains(entry.getKey())) {
                 iterator.remove();
             }
         }
@@ -285,7 +289,7 @@ public class WorldScanService {
         if (!enemyThreatPlayers.isEmpty()) {
             String threatMessage = EnumChatFormatting.RED + "Enemy threats detected: " +
                     EnumChatFormatting.YELLOW + String.join(", ", enemyThreatPlayers);
-            if (ModConfig.isAutoplayRequeueEnabled()) {
+            if (ModConfig.isAutoplayRequeueEnabled() || !state.inBedwarsLobby) {
                 requeueAutoplay(mc, threatMessage);
             } else {
                 mc.thePlayer.addChatMessage(new ChatComponentText(

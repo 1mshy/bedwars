@@ -451,7 +451,7 @@ public class BedwarsRuntime {
             String burstMessage = EnumChatFormatting.RED + "Party burst detected: " +
                     EnumChatFormatting.YELLOW + state.joinMessageBurstCount +
                     EnumChatFormatting.GRAY + " joins in the same tick.";
-            if (ModConfig.isAutoplayRequeueEnabled()) {
+            if (ModConfig.isAutoplayRequeueEnabled() || !state.inBedwarsLobby) {
                 worldScanService.requeueAutoplay(mc, burstMessage);
             } else {
                 mc.thePlayer.addChatMessage(new ChatComponentText(
@@ -548,7 +548,7 @@ public class BedwarsRuntime {
                             String threatMessage = EnumChatFormatting.RED + "Chat threat detected: " +
                                     EnumChatFormatting.YELLOW + chatterName +
                                     " (" + threat.name() + ")";
-                            if (ModConfig.isAutoplayRequeueEnabled()) {
+                            if (ModConfig.isAutoplayRequeueEnabled() || !state.inBedwarsLobby) {
                                 worldScanService.requeueAutoplay(mcInner, threatMessage);
                             } else if (mcInner.thePlayer != null) {
                                 mcInner.thePlayer.addChatMessage(new ChatComponentText(
