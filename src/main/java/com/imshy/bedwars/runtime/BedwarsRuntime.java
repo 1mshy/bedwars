@@ -29,7 +29,7 @@ public class BedwarsRuntime {
     private static final Pattern LOBBY_JOIN_MESSAGE_PATTERN = Pattern
             .compile("^[A-Za-z0-9_]{1,16} has joined \\(\\d+/\\d+\\)[.!]?$");
     private static final Pattern CHAT_MESSAGE_PATTERN = Pattern
-            .compile("^(?:\\[[A-Z+]+\\] )?([A-Za-z0-9_]{1,16}): .+$");
+            .compile("^(?:\\[[^\\]]+\\] )*([A-Za-z0-9_]{1,16}): .+$");
     private static final Pattern RECONNECT_MESSAGE_PATTERN = Pattern.compile("^([A-Za-z0-9_]{1,16}) reconnected\\.$");
     private static final int PARTY_JOIN_WARNING_THRESHOLD = 4;
     private static final Pattern PARTY_LINE_PATTERN = Pattern.compile("^Party (?:Leader|Members|Moderators): (.+)$");
@@ -160,7 +160,7 @@ public class BedwarsRuntime {
             return;
         }
 
-        String message = event.message.getUnformattedText();
+        String message = event.message.getUnformattedText().replaceAll("\u00a7.", "");
         Minecraft mc = Minecraft.getMinecraft();
 
         parsePartyListResponse(mc, message);
@@ -465,7 +465,8 @@ public class BedwarsRuntime {
     }
 
     private void handleChatMessageStatLookup(Minecraft mc, String message) {
-        if (mc == null || mc.thePlayer == null || message == null || !state.inBedwarsLobby
+        System.out.println("[DEBUG] Raw message: " + message);
+        if (mc == null || mc.thePlayer == null || message == null || !state.autoplayEnabled
                 || state.disconnectedFromGame) {
             return;
         }
