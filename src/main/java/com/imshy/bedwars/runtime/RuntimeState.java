@@ -17,6 +17,10 @@ final class RuntimeState {
     final List<LobbyTrackerService.PlayerJoinEntry> recentJoins = new ArrayList<LobbyTrackerService.PlayerJoinEntry>();
 
     boolean inBedwarsLobby = false;
+    long clientTickCounter = 0;
+    long joinMessageBurstTick = -1;
+    int joinMessageBurstCount = 0;
+    long lastPartyWarningTick = -1;
 
     final List<BlockPos> playerBedBlocks = new ArrayList<BlockPos>();
     BlockPos fallbackBedPosition = null;

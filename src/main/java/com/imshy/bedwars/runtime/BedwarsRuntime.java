@@ -20,8 +20,13 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 public class BedwarsRuntime {
+    private static final Pattern LOBBY_JOIN_MESSAGE_PATTERN =
+            Pattern.compile("^[A-Za-z0-9_]{1,16} has joined \\(\\d+/\\d+\\)[.!]?$");
+    private static final int PARTY_JOIN_WARNING_THRESHOLD = 4;
+
     private final RuntimeState state;
     private final TeamDangerAnalyzer teamDangerAnalyzer;
     private final MatchThreatService matchThreatService;
@@ -99,6 +104,8 @@ public class BedwarsRuntime {
 
         String message = event.message.getUnformattedText();
         Minecraft mc = Minecraft.getMinecraft();
+
+        trackJoinMessageBurst(mc, message);
 
         if (message.contains("Protect your bed and destroy the enemy beds.")) {
             if (!state.inBedwarsLobby) {
@@ -204,6 +211,8 @@ public class BedwarsRuntime {
             return;
         }
 
+        state.clientTickCounter++;
+
         Minecraft mc = Minecraft.getMinecraft();
 
         if (state.autoplayEnabled && state.autoplayPendingCheck && state.inBedwarsLobby) {
@@ -299,6 +308,33 @@ public class BedwarsRuntime {
                     overlayRenderer.renderInvisiblePlayerIndicator(player, event.partialTicks);
                 }
             }
+        }
+    }
+
+    private void trackJoinMessageBurst(Minecraft mc, String message) {
+        if (mc == null || mc.thePlayer == null || message == null) {
+            return;
+        }
+
+        if (!LOBBY_JOIN_MESSAGE_PATTERN.matcher(message).matches()) {
+            return;
+        }
+
+        if (state.joinMessageBurstTick != state.clientTickCounter) {
+            state.joinMessageBurstTick = state.clientTickCounter;
+            state.joinMessageBurstCount = 0;
+        }
+
+        state.joinMessageBurstCount++;
+
+        if (state.joinMessageBurstCount >= PARTY_JOIN_WARNING_THRESHOLD &&
+                state.lastPartyWarningTick != state.clientTickCounter) {
+            state.lastPartyWarningTick = state.clientTickCounter;
+            mc.thePlayer.addChatMessage(new ChatComponentText(
+                    EnumChatFormatting.GOLD + "[BW] " +
+                            EnumChatFormatting.RED + "Party warning: " +
+                            EnumChatFormatting.YELLOW + state.joinMessageBurstCount +
+                            EnumChatFormatting.GRAY + " players joined in the same tick."));
         }
     }
 }
