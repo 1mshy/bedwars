@@ -58,6 +58,15 @@ public class ModConfig {
     private static int generatorScanRange = 100; // blocks
     private static int generatorLabelRenderDistance = 256; // blocks
 
+    // HUD overlay settings
+    private static boolean hudEnabled = true;
+    private static boolean hudHighestThreatEnabled = true;
+    private static boolean hudGeneratorCountsEnabled = true;
+    private static boolean hudTeamSummaryEnabled = true;
+    private static String hudPosition = "TOP_LEFT";
+    private static double hudScale = 1.0;
+    private static double hudBackgroundOpacity = 0.4;
+
     /**
      * Initialize the configuration file
      */
@@ -383,6 +392,62 @@ public class ModConfig {
                     100, 500);
             generatorLabelRenderDistance = generatorRenderDistProp.getInt();
 
+            // HUD overlay settings
+            Property hudEnabledProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "hudEnabled",
+                    true,
+                    "Master toggle for the on-screen HUD overlay");
+            hudEnabled = hudEnabledProp.getBoolean();
+
+            Property hudHighestThreatProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "hudHighestThreatEnabled",
+                    true,
+                    "Show highest enemy team threat on the HUD");
+            hudHighestThreatEnabled = hudHighestThreatProp.getBoolean();
+
+            Property hudGeneratorCountsProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "hudGeneratorCountsEnabled",
+                    true,
+                    "Show diamond/emerald generator resource counts on the HUD");
+            hudGeneratorCountsEnabled = hudGeneratorCountsProp.getBoolean();
+
+            Property hudTeamSummaryProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "hudTeamSummaryEnabled",
+                    true,
+                    "Show per-team danger summary on the HUD");
+            hudTeamSummaryEnabled = hudTeamSummaryProp.getBoolean();
+
+            Property hudPositionProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "hudPosition",
+                    "TOP_LEFT",
+                    "Screen corner for the HUD overlay. TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, or BOTTOM_RIGHT.");
+            hudPosition = hudPositionProp.getString();
+            if (!hudPosition.equals("TOP_LEFT") && !hudPosition.equals("TOP_RIGHT")
+                    && !hudPosition.equals("BOTTOM_LEFT") && !hudPosition.equals("BOTTOM_RIGHT")) {
+                hudPosition = "TOP_LEFT";
+            }
+
+            Property hudScaleProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "hudScale",
+                    1.0,
+                    "Scale factor for the HUD overlay",
+                    0.5, 2.0);
+            hudScale = hudScaleProp.getDouble();
+
+            Property hudBgOpacityProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "hudBackgroundOpacity",
+                    0.4,
+                    "Background opacity for the HUD panel",
+                    0.0, 1.0);
+            hudBackgroundOpacity = hudBgOpacityProp.getDouble();
+
             // Apply the loaded API key to HypixelAPI
             if (apiKey != null && !apiKey.isEmpty()) {
                 HypixelAPI.setApiKey(apiKey);
@@ -569,5 +634,34 @@ public class ModConfig {
 
     public static int getGeneratorLabelRenderDistance() {
         return generatorLabelRenderDistance;
+    }
+
+    // HUD overlay getters
+    public static boolean isHudEnabled() {
+        return hudEnabled;
+    }
+
+    public static boolean isHudHighestThreatEnabled() {
+        return hudHighestThreatEnabled;
+    }
+
+    public static boolean isHudGeneratorCountsEnabled() {
+        return hudGeneratorCountsEnabled;
+    }
+
+    public static boolean isHudTeamSummaryEnabled() {
+        return hudTeamSummaryEnabled;
+    }
+
+    public static String getHudPosition() {
+        return hudPosition;
+    }
+
+    public static double getHudScale() {
+        return hudScale;
+    }
+
+    public static double getHudBackgroundOpacity() {
+        return hudBackgroundOpacity;
     }
 }

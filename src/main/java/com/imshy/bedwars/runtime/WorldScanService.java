@@ -61,6 +61,37 @@ public class WorldScanService {
         }
     }
 
+    public GeneratorSummary getGeneratorSummary() {
+        int totalDiamonds = 0;
+        int totalEmeralds = 0;
+        int diamondGenerators = 0;
+        int emeraldGenerators = 0;
+        for (GeneratorEntry gen : state.trackedGenerators.values()) {
+            if (gen.isDiamond) {
+                diamondGenerators++;
+                totalDiamonds += gen.resourceCount;
+            } else {
+                emeraldGenerators++;
+                totalEmeralds += gen.resourceCount;
+            }
+        }
+        return new GeneratorSummary(totalDiamonds, totalEmeralds, diamondGenerators, emeraldGenerators);
+    }
+
+    public static class GeneratorSummary {
+        public final int totalDiamonds;
+        public final int totalEmeralds;
+        public final int diamondGenerators;
+        public final int emeraldGenerators;
+
+        GeneratorSummary(int totalDiamonds, int totalEmeralds, int diamondGenerators, int emeraldGenerators) {
+            this.totalDiamonds = totalDiamonds;
+            this.totalEmeralds = totalEmeralds;
+            this.diamondGenerators = diamondGenerators;
+            this.emeraldGenerators = emeraldGenerators;
+        }
+    }
+
     public boolean isValidAutoplayMode(String mode) {
         return GAME_MODE_COMMANDS.containsKey(mode);
     }

@@ -5,9 +5,11 @@ import com.imshy.bedwars.BedwarsStats;
 import com.imshy.bedwars.HypixelAPI;
 import com.imshy.bedwars.ModConfig;
 import com.imshy.bedwars.PlayerDatabase;
+import com.imshy.bedwars.render.BedwarsHudRenderer;
 import com.imshy.bedwars.render.BedwarsOverlayRenderer;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.EnumChatFormatting;
@@ -41,6 +43,7 @@ public class BedwarsRuntime {
     private final LobbyTrackerService lobbyTrackerService;
     private final WorldScanService worldScanService;
     private final BedwarsOverlayRenderer overlayRenderer;
+    private final BedwarsHudRenderer hudRenderer;
 
     public BedwarsRuntime() {
         this.state = new RuntimeState();
@@ -49,6 +52,7 @@ public class BedwarsRuntime {
         this.lobbyTrackerService = new LobbyTrackerService(state, matchThreatService);
         this.worldScanService = new WorldScanService(state, matchThreatService);
         this.overlayRenderer = new BedwarsOverlayRenderer();
+        this.hudRenderer = new BedwarsHudRenderer();
     }
 
     public boolean isInBedwarsLobby() {
@@ -255,6 +259,11 @@ public class BedwarsRuntime {
         }
 
         lobbyTrackerService.trimRecentJoins();
+
+        if (state.inBedwarsLobby && ModConfig.isHudEnabled()) {
+            ScaledResolution resolution = new ScaledResolution(mc);
+            hudRenderer.render(resolution, mc, teamDangerAnalyzer, worldScanService);
+        }
     }
 
     @SubscribeEvent

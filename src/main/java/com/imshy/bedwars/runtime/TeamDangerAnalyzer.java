@@ -46,7 +46,7 @@ public class TeamDangerAnalyzer {
         return lines;
     }
 
-    private List<TeamDangerEntry> buildTeamDangerSummary(Minecraft mc) {
+    public List<TeamDangerEntry> buildTeamDangerSummary(Minecraft mc) {
         if (!state.inBedwarsLobby || mc == null || mc.theWorld == null || mc.thePlayer == null) {
             return new ArrayList<TeamDangerEntry>();
         }
@@ -170,7 +170,7 @@ public class TeamDangerAnalyzer {
         }
     }
 
-    private static String averageThreatLabel(double averageScore) {
+    public static String averageThreatLabel(double averageScore) {
         if (averageScore >= 3.5) {
             return "EXTREME";
         }
@@ -183,7 +183,7 @@ public class TeamDangerAnalyzer {
         return "LOW";
     }
 
-    private static String dangerLabelColor(String dangerLabel) {
+    public static String dangerLabelColor(String dangerLabel) {
         if ("EXTREME".equals(dangerLabel)) {
             return EnumChatFormatting.DARK_RED.toString();
         }
@@ -199,13 +199,13 @@ public class TeamDangerAnalyzer {
         return EnumChatFormatting.GRAY.toString();
     }
 
-    private static class TeamDangerEntry {
-        String teamName;
-        String teamColor;
-        boolean isOwnTeam;
-        int totalPlayers;
-        int playersWithKnownThreat;
-        double totalThreatScore;
+    public static class TeamDangerEntry {
+        public final String teamName;
+        public final String teamColor;
+        public final boolean isOwnTeam;
+        public int totalPlayers;
+        public int playersWithKnownThreat;
+        public double totalThreatScore;
 
         TeamDangerEntry(String teamName, String teamColor, boolean isOwnTeam) {
             this.teamName = teamName;
@@ -213,7 +213,7 @@ public class TeamDangerAnalyzer {
             this.isOwnTeam = isOwnTeam;
         }
 
-        double getAverageThreatScore() {
+        public double getAverageThreatScore() {
             if (playersWithKnownThreat == 0) {
                 return 0.0;
             }
