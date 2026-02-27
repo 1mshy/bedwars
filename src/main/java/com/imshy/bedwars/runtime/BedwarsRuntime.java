@@ -29,6 +29,11 @@ public class BedwarsRuntime {
     private static final Pattern CHAT_MESSAGE_PATTERN =
             Pattern.compile("^(?:\\[[A-Z+]+\\] )?([A-Za-z0-9_]{1,16}): .+$");
     private static final int PARTY_JOIN_WARNING_THRESHOLD = 4;
+    private static final Pattern PARTY_LINE_PATTERN =
+            Pattern.compile("^Party (?:Leader|Members|Moderators): (.+)$");
+    private static final Pattern PARTY_MEMBER_NAME_PATTERN =
+            Pattern.compile("(?:\\[[A-Za-z0-9+]+\\] )?([A-Za-z0-9_]{1,16})");
+    private static final long PARTY_LIST_TIMEOUT_MS = 3000;
 
     private final RuntimeState state;
     private final TeamDangerAnalyzer teamDangerAnalyzer;
@@ -42,7 +47,7 @@ public class BedwarsRuntime {
         this.teamDangerAnalyzer = new TeamDangerAnalyzer(state);
         this.matchThreatService = new MatchThreatService(state, teamDangerAnalyzer);
         this.lobbyTrackerService = new LobbyTrackerService(state, matchThreatService);
-        this.worldScanService = new WorldScanService(state);
+        this.worldScanService = new WorldScanService(state, matchThreatService);
         this.overlayRenderer = new BedwarsOverlayRenderer();
     }
 
@@ -99,6 +104,48 @@ public class BedwarsRuntime {
         return worldScanService.getPlayCommand(mode);
     }
 
+    public void requestPartyList(Minecraft mc) {
+        if (mc == null || mc.thePlayer == null) {
+            return;
+        }
+        state.partyMemberNames.clear();
+        state.partyListPending = true;
+        state.partyListRequestTime = System.currentTimeMillis();
+        mc.thePlayer.sendChatMessage("/p list");
+    }
+
+    private void parsePartyListResponse(Minecraft mc, String message) {
+        if (!state.partyListPending) {
+            return;
+        }
+
+        if (System.currentTimeMillis() - state.partyListRequestTime > PARTY_LIST_TIMEOUT_MS) {
+            state.partyListPending = false;
+            return;
+        }
+
+        if (message.contains("You are not currently in a party")) {
+            state.partyListPending = false;
+            return;
+        }
+
+        Matcher lineMatcher = PARTY_LINE_PATTERN.matcher(message);
+        if (!lineMatcher.matches()) {
+            return;
+        }
+
+        String membersPart = lineMatcher.group(1);
+        Matcher nameMatcher = PARTY_MEMBER_NAME_PATTERN.matcher(membersPart);
+        String selfName = mc.thePlayer != null ? mc.thePlayer.getName() : "";
+
+        while (nameMatcher.find()) {
+            String name = nameMatcher.group(1);
+            if (name != null && !name.equals(selfName)) {
+                state.partyMemberNames.add(name);
+            }
+        }
+    }
+
     @SubscribeEvent
     public void onChatReceived(ClientChatReceivedEvent event) {
         if (event.message == null) {
@@ -108,6 +155,7 @@ public class BedwarsRuntime {
         String message = event.message.getUnformattedText();
         Minecraft mc = Minecraft.getMinecraft();
 
+        parsePartyListResponse(mc, message);
         trackJoinMessageBurst(mc, message);
         handleChatMessageStatLookup(mc, message);
 
@@ -328,11 +376,21 @@ public class BedwarsRuntime {
             state.joinMessageBurstTick = state.clientTickCounter;
             state.joinMessageBurstCount = 0;
             state.joinBurstContainsMainUser = false;
+            state.joinBurstNames.clear();
         }
 
         String joinerName = message.split(" has joined")[0];
+        state.joinBurstNames.add(joinerName);
         if (joinerName.equals(mc.thePlayer.getName())) {
             state.joinBurstContainsMainUser = true;
+        }
+
+        if (state.joinBurstContainsMainUser) {
+            for (String burstName : state.joinBurstNames) {
+                if (!burstName.equals(mc.thePlayer.getName())) {
+                    state.partyMemberNames.add(burstName);
+                }
+            }
         }
 
         state.joinMessageBurstCount++;
@@ -386,6 +444,10 @@ public class BedwarsRuntime {
             return;
         }
 
+        if (state.partyMemberNames.contains(chatterName)) {
+            return;
+        }
+
         if (HypixelAPI.getCachedStats(chatterName) != null) {
             return;
         }
@@ -425,18 +487,40 @@ public class BedwarsRuntime {
 
                     if (isThreat) {
                         Minecraft mcInner = Minecraft.getMinecraft();
-                        String threatMessage = EnumChatFormatting.RED + "Chat threat detected: " +
-                                EnumChatFormatting.YELLOW + chatterName +
-                                " (" + threat.name() + ")";
-                        if (ModConfig.isAutoplayRequeueEnabled()) {
-                            worldScanService.requeueAutoplay(mcInner, threatMessage);
-                        } else if (mcInner.thePlayer != null) {
-                            mcInner.thePlayer.addChatMessage(new ChatComponentText(
-                                    EnumChatFormatting.GOLD + "[Autoplay] " + threatMessage));
-                            mcInner.thePlayer.addChatMessage(new ChatComponentText(
-                                    EnumChatFormatting.GOLD + "[Autoplay] " +
-                                            EnumChatFormatting.GRAY + "Requeue is disabled. Staying in lobby."));
-                            state.autoplayEnabled = false;
+
+                        boolean isTeammate = false;
+                        if (mcInner.theWorld != null && mcInner.thePlayer != null) {
+                            for (EntityPlayer p : mcInner.theWorld.playerEntities) {
+                                if (p.getName().equals(chatterName)) {
+                                    isTeammate = matchThreatService.isTeammate(
+                                            mcInner, mcInner.thePlayer, p);
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (isTeammate) {
+                            if (mcInner.thePlayer != null) {
+                                mcInner.thePlayer.addChatMessage(new ChatComponentText(
+                                        EnumChatFormatting.GOLD + "[Autoplay] " +
+                                                EnumChatFormatting.GREEN + "Teammate threat (ignored): " +
+                                                EnumChatFormatting.YELLOW + chatterName +
+                                                " (" + threat.name() + ")"));
+                            }
+                        } else {
+                            String threatMessage = EnumChatFormatting.RED + "Chat threat detected: " +
+                                    EnumChatFormatting.YELLOW + chatterName +
+                                    " (" + threat.name() + ")";
+                            if (ModConfig.isAutoplayRequeueEnabled()) {
+                                worldScanService.requeueAutoplay(mcInner, threatMessage);
+                            } else if (mcInner.thePlayer != null) {
+                                mcInner.thePlayer.addChatMessage(new ChatComponentText(
+                                        EnumChatFormatting.GOLD + "[Autoplay] " + threatMessage));
+                                mcInner.thePlayer.addChatMessage(new ChatComponentText(
+                                        EnumChatFormatting.GOLD + "[Autoplay] " +
+                                                EnumChatFormatting.GRAY + "Requeue is disabled. Staying in lobby."));
+                                state.autoplayEnabled = false;
+                            }
                         }
                     }
                 }

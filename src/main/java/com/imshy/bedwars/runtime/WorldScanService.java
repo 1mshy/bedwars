@@ -39,9 +39,11 @@ public class WorldScanService {
     }
 
     private final RuntimeState state;
+    private final MatchThreatService matchThreatService;
 
-    WorldScanService(RuntimeState state) {
+    WorldScanService(RuntimeState state, MatchThreatService matchThreatService) {
         this.state = state;
+        this.matchThreatService = matchThreatService;
     }
 
     public void clearTrackedGenerators() {
@@ -205,7 +207,8 @@ public class WorldScanService {
         }
 
         String maxThreatLevel = ModConfig.getAutoplayMaxThreatLevel();
-        List<String> threatPlayers = new ArrayList<String>();
+        List<String> enemyThreatPlayers = new ArrayList<String>();
+        List<String> teammateThreatPlayers = new ArrayList<String>();
 
         for (EntityPlayer player : mc.theWorld.playerEntities) {
             if (player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
@@ -213,6 +216,11 @@ public class WorldScanService {
             }
 
             String playerName = player.getName();
+
+            if (state.partyMemberNames.contains(playerName)) {
+                continue;
+            }
+
             BedwarsStats stats = HypixelAPI.getCachedStats(playerName);
 
             if (stats != null && stats.isLoaded()) {
@@ -227,14 +235,25 @@ public class WorldScanService {
                 }
 
                 if (isThreat) {
-                    threatPlayers.add(playerName + " (" + threat.name() + ")");
+                    if (matchThreatService.isTeammate(mc, mc.thePlayer, player)) {
+                        teammateThreatPlayers.add(playerName + " (" + threat.name() + ")");
+                    } else {
+                        enemyThreatPlayers.add(playerName + " (" + threat.name() + ")");
+                    }
                 }
             }
         }
 
-        if (!threatPlayers.isEmpty()) {
-            String threatMessage = EnumChatFormatting.RED + "Threats detected: " +
-                    EnumChatFormatting.YELLOW + String.join(", ", threatPlayers);
+        if (!teammateThreatPlayers.isEmpty()) {
+            mc.thePlayer.addChatMessage(new ChatComponentText(
+                    EnumChatFormatting.GOLD + "[Autoplay] " +
+                            EnumChatFormatting.GREEN + "Teammate threats (ignored): " +
+                            EnumChatFormatting.YELLOW + String.join(", ", teammateThreatPlayers)));
+        }
+
+        if (!enemyThreatPlayers.isEmpty()) {
+            String threatMessage = EnumChatFormatting.RED + "Enemy threats detected: " +
+                    EnumChatFormatting.YELLOW + String.join(", ", enemyThreatPlayers);
             if (ModConfig.isAutoplayRequeueEnabled()) {
                 requeueAutoplay(mc, threatMessage);
             } else {
@@ -248,7 +267,7 @@ public class WorldScanService {
         } else {
             mc.thePlayer.addChatMessage(new ChatComponentText(
                     EnumChatFormatting.GOLD + "[Autoplay] " +
-                            EnumChatFormatting.GREEN + "No threats detected! Stopping autoplay."));
+                            EnumChatFormatting.GREEN + "No enemy threats detected! Stopping autoplay."));
             state.autoplayEnabled = false;
         }
     }

@@ -495,6 +495,9 @@ public class BedwarsCommand extends CommandBase {
 
         runtime.startAutoplay(mode);
 
+        Minecraft mc = Minecraft.getMinecraft();
+        runtime.requestPartyList(mc);
+
         String playCommand = runtime.getPlayCommand(mode);
         sendMessage(sender, EnumChatFormatting.GOLD + "[Autoplay] " +
                 EnumChatFormatting.GREEN + "Started autoplay for " + mode + "!");
@@ -502,7 +505,6 @@ public class BedwarsCommand extends CommandBase {
                 ModConfig.getAutoplayMaxThreatLevel() + "+ threat players detected.");
         sendMessage(sender, EnumChatFormatting.GRAY + "Use /bw autoplay stop to cancel.");
 
-        Minecraft mc = Minecraft.getMinecraft();
         if (mc.thePlayer != null && playCommand != null) {
             mc.thePlayer.sendChatMessage(playCommand);
         }

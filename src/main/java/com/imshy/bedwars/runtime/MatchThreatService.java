@@ -306,7 +306,7 @@ public class MatchThreatService {
         return nearestDistance == Double.MAX_VALUE ? -1.0 : nearestDistance;
     }
 
-    private boolean isTeammate(Minecraft mc, EntityPlayer self, EntityPlayer other) {
+    boolean isTeammate(Minecraft mc, EntityPlayer self, EntityPlayer other) {
         if (self == null || other == null) {
             return false;
         }

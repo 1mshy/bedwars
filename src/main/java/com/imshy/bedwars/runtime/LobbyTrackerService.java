@@ -53,6 +53,24 @@ public class LobbyTrackerService {
                 mc.thePlayer.addChatMessage(new ChatComponentText(
                         EnumChatFormatting.GOLD + "[Autoplay] " +
                                 EnumChatFormatting.YELLOW + "Checking lobby for threats in 5 seconds..."));
+
+                state.partyMemberNames.clear();
+                state.partyListPending = true;
+                state.partyListRequestTime = System.currentTimeMillis();
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            Thread.sleep(1000);
+                            Minecraft mc = Minecraft.getMinecraft();
+                            if (mc.thePlayer != null && state.autoplayEnabled) {
+                                mc.thePlayer.sendChatMessage("/p list");
+                            }
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }).start();
             }
         }
     }

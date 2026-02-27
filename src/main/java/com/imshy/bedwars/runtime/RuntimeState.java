@@ -39,6 +39,11 @@ final class RuntimeState {
     long autoplayCheckTime = 0;
     boolean autoplayPendingCheck = false;
 
+    final Set<String> partyMemberNames = new HashSet<String>();
+    boolean partyListPending = false;
+    long partyListRequestTime = 0;
+    final List<String> joinBurstNames = new ArrayList<String>();
+
     final Map<String, Long> invisiblePlayerWarnings = new HashMap<String, Long>();
 
     final Map<BlockPos, WorldScanService.GeneratorEntry> trackedGenerators =
