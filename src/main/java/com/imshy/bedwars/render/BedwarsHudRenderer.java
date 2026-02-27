@@ -3,6 +3,7 @@ package com.imshy.bedwars.render;
 import com.imshy.bedwars.BedwarsStats;
 import com.imshy.bedwars.HypixelAPI;
 import com.imshy.bedwars.ModConfig;
+import com.imshy.bedwars.runtime.ChatDetectedPlayer;
 import com.imshy.bedwars.runtime.TeamDangerAnalyzer;
 import com.imshy.bedwars.runtime.TeamDangerAnalyzer.TeamDangerEntry;
 import com.imshy.bedwars.runtime.WorldScanService;
@@ -35,7 +36,7 @@ public class BedwarsHudRenderer {
 
     public void render(ScaledResolution resolution, Minecraft mc,
                        TeamDangerAnalyzer teamDangerAnalyzer, WorldScanService worldScanService,
-                       long gameStartTime) {
+                       long gameStartTime, List<ChatDetectedPlayer> chatDetectedPlayers) {
         if (!ModConfig.isHudEnabled()) {
             return;
         }
@@ -44,7 +45,7 @@ public class BedwarsHudRenderer {
         double scale = ModConfig.getHudScale();
 
         List<HudLine> lines = new ArrayList<HudLine>();
-        buildHudContent(lines, mc, fr, teamDangerAnalyzer, worldScanService, gameStartTime);
+        buildHudContent(lines, mc, fr, teamDangerAnalyzer, worldScanService, gameStartTime, chatDetectedPlayers);
 
         if (lines.isEmpty()) {
             return;
@@ -108,7 +109,7 @@ public class BedwarsHudRenderer {
 
     private void buildHudContent(List<HudLine> lines, Minecraft mc, FontRenderer fr,
                                   TeamDangerAnalyzer teamDangerAnalyzer, WorldScanService worldScanService,
-                                  long gameStartTime) {
+                                  long gameStartTime, List<ChatDetectedPlayer> chatDetectedPlayers) {
         boolean addedSection = false;
 
         if (ModConfig.isHudHighestThreatEnabled()) {
@@ -127,7 +128,15 @@ public class BedwarsHudRenderer {
             if (addedSection) {
                 lines.add(HudLine.gap());
             }
-            addTeamSummarySection(lines, mc, teamDangerAnalyzer, gameStartTime);
+            boolean added = addTeamSummarySection(lines, mc, teamDangerAnalyzer, gameStartTime);
+            addedSection = addedSection || added;
+        }
+
+        if (ModConfig.isHudChatDetectedEnabled()) {
+            if (addedSection) {
+                lines.add(HudLine.gap());
+            }
+            addChatDetectedSection(lines, mc, chatDetectedPlayers);
         }
     }
 
@@ -310,6 +319,41 @@ public class BedwarsHudRenderer {
         }
 
         return new int[]{x, y};
+    }
+
+    private boolean addChatDetectedSection(List<HudLine> lines, Minecraft mc,
+                                            List<ChatDetectedPlayer> chatDetectedPlayers) {
+        if (chatDetectedPlayers == null || chatDetectedPlayers.isEmpty()) {
+            return false;
+        }
+
+        lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "DETECTED PLAYERS"));
+
+        synchronized (chatDetectedPlayers) {
+            for (ChatDetectedPlayer cdp : chatDetectedPlayers) {
+                BedwarsStats stats = cdp.stats;
+                BedwarsStats.ThreatLevel threat = stats.getThreatLevel();
+                String threatColor = stats.getThreatColor();
+
+                ResourceLocation skin = null;
+                if (mc.theWorld != null) {
+                    for (EntityPlayer player : mc.theWorld.playerEntities) {
+                        if (player.getName().equals(cdp.name) && player instanceof AbstractClientPlayer) {
+                            skin = ((AbstractClientPlayer) player).getLocationSkin();
+                            break;
+                        }
+                    }
+                }
+
+                String line = threatColor + "[" + threat.name() + "] " +
+                        EnumChatFormatting.WHITE + cdp.name + " " +
+                        EnumChatFormatting.GRAY + stats.getStars() + "\u2B50 " +
+                        EnumChatFormatting.YELLOW + String.format("%.1f", stats.getFkdr()) + " FKDR";
+
+                lines.add(HudLine.playerLine(line, skin));
+            }
+        }
+        return true;
     }
 
     private static class ThreatPlayerEntry {

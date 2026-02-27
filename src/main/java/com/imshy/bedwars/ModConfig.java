@@ -63,6 +63,7 @@ public class ModConfig {
     private static boolean hudHighestThreatEnabled = true;
     private static boolean hudGeneratorCountsEnabled = true;
     private static boolean hudTeamSummaryEnabled = true;
+    private static boolean hudChatDetectedEnabled = true;
     private static String hudPosition = "TOP_LEFT";
     private static double hudScale = 1.0;
     private static double hudBackgroundOpacity = 0.4;
@@ -421,6 +422,13 @@ public class ModConfig {
                     "Show per-team danger summary on the HUD");
             hudTeamSummaryEnabled = hudTeamSummaryProp.getBoolean();
 
+            Property hudChatDetectedProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "hudChatDetectedEnabled",
+                    true,
+                    "Show stats of players detected via in-game chat on the HUD");
+            hudChatDetectedEnabled = hudChatDetectedProp.getBoolean();
+
             Property hudPositionProp = config.get(
                     Configuration.CATEGORY_GENERAL,
                     "hudPosition",
@@ -651,6 +659,10 @@ public class ModConfig {
 
     public static boolean isHudTeamSummaryEnabled() {
         return hudTeamSummaryEnabled;
+    }
+
+    public static boolean isHudChatDetectedEnabled() {
+        return hudChatDetectedEnabled;
     }
 
     public static String getHudPosition() {

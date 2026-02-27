@@ -187,6 +187,7 @@ public class BedwarsRuntime {
                 PlayerDatabase.getInstance().clearCurrentGame();
                 state.inBedwarsLobby = false;
                 state.disconnectedFromGame = false;
+                state.chatDetectedPlayers.clear();
                 matchThreatService.clearBedTrackingState();
                 lobbyTrackerService.clearRecentJoins();
                 return;
@@ -212,6 +213,7 @@ public class BedwarsRuntime {
                 db.clearCurrentGame();
                 state.inBedwarsLobby = false;
                 state.disconnectedFromGame = false;
+                state.chatDetectedPlayers.clear();
                 matchThreatService.clearBedTrackingState();
                 lobbyTrackerService.clearRecentJoins();
                 return;
@@ -222,6 +224,7 @@ public class BedwarsRuntime {
             if (state.inBedwarsLobby) {
                 state.inBedwarsLobby = false;
                 state.disconnectedFromGame = false;
+                state.chatDetectedPlayers.clear();
                 matchThreatService.clearBedTrackingState();
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.UNKNOWN);
                 PlayerDatabase.getInstance().clearCurrentGame();
@@ -284,7 +287,8 @@ public class BedwarsRuntime {
 
         if (state.inBedwarsLobby && ModConfig.isHudEnabled()) {
             ScaledResolution resolution = new ScaledResolution(mc);
-            hudRenderer.render(resolution, mc, teamDangerAnalyzer, worldScanService, state.gameStartTime);
+            hudRenderer.render(resolution, mc, teamDangerAnalyzer, worldScanService, state.gameStartTime,
+                    state.chatDetectedPlayers);
         }
     }
 
@@ -466,7 +470,7 @@ public class BedwarsRuntime {
 
     private void handleChatMessageStatLookup(Minecraft mc, String message) {
         System.out.println("[DEBUG] Raw message: " + message);
-        if (mc == null || mc.thePlayer == null || message == null || !state.autoplayEnabled
+        if (mc == null || mc.thePlayer == null || message == null
                 || state.disconnectedFromGame) {
             return;
         }
@@ -508,12 +512,30 @@ public class BedwarsRuntime {
                         threat == BedwarsStats.ThreatLevel.HIGH ||
                         threat == BedwarsStats.ThreatLevel.EXTREME) {
 
-                    Minecraft mc = Minecraft.getMinecraft();
-                    if (mc.thePlayer != null) {
-                        mc.thePlayer.addChatMessage(new ChatComponentText(
-                                EnumChatFormatting.GREEN + "[BW] " +
-                                        stats.getThreatColor() + chatterName + " " +
-                                        stats.getDisplayString()));
+                    // Add to persistent HUD list (deduplicate)
+                    synchronized (state.chatDetectedPlayers) {
+                        boolean alreadyTracked = false;
+                        for (ChatDetectedPlayer cdp : state.chatDetectedPlayers) {
+                            if (cdp.name.equals(chatterName)) {
+                                alreadyTracked = true;
+                                break;
+                            }
+                        }
+                        if (!alreadyTracked) {
+                            state.chatDetectedPlayers.add(
+                                    new ChatDetectedPlayer(chatterName, stats));
+                        }
+                    }
+
+                    // Fallback to chat message when HUD is disabled
+                    if (!ModConfig.isHudEnabled() || !ModConfig.isHudChatDetectedEnabled()) {
+                        Minecraft mc = Minecraft.getMinecraft();
+                        if (mc.thePlayer != null) {
+                            mc.thePlayer.addChatMessage(new ChatComponentText(
+                                    EnumChatFormatting.GREEN + "[BW] " +
+                                            stats.getThreatColor() + chatterName + " " +
+                                            stats.getDisplayString()));
+                        }
                     }
                 }
 

@@ -1,5 +1,7 @@
 package com.imshy.bedwars.runtime;
 
+import com.imshy.bedwars.BedwarsStats;
+
 import net.minecraft.util.BlockPos;
 
 import java.util.ArrayList;
@@ -56,4 +58,6 @@ final class RuntimeState {
     boolean disconnectedFromGame = false;
     long disconnectTime = 0;
     String lastDetectedMapName = "Unknown";
+
+    final List<ChatDetectedPlayer> chatDetectedPlayers = new ArrayList<ChatDetectedPlayer>();
 }
