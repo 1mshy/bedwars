@@ -47,6 +47,7 @@ public class ModConfig {
     private static int autoBlacklistExpiryDays = 30;
     private static String autoplayMaxThreatLevel = "HIGH"; // HIGH or EXTREME
     private static boolean autoplayRequeueEnabled = false;
+    private static int lobbyMaxPlayerCount = 8;
 
     // Invisible player detection settings
     private static boolean invisiblePlayerAlertsEnabled = true;
@@ -238,6 +239,14 @@ public class ModConfig {
                     false,
                     "When true, autoplay will leave and requeue into a new game when threats are detected. When false, it only displays stats.");
             autoplayRequeueEnabled = autoplayRequeueProp.getBoolean();
+
+            Property lobbyMaxPlayerCountProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "lobbyMaxPlayerCount",
+                    8,
+                    "Maximum number of players in a pre-game lobby before autoplay switches lobbies. Set to 16 to effectively disable.",
+                    2, 16);
+            lobbyMaxPlayerCount = lobbyMaxPlayerCountProp.getInt();
 
             // Invisible player detection settings
             Property invisibleAlertsProp = config.get(
@@ -626,6 +635,16 @@ public class ModConfig {
     public static void setAutoplayRequeueEnabled(boolean enabled) {
         autoplayRequeueEnabled = enabled;
         config.get(Configuration.CATEGORY_GENERAL, "autoplayRequeueEnabled", false).set(enabled);
+        config.save();
+    }
+
+    public static int getLobbyMaxPlayerCount() {
+        return lobbyMaxPlayerCount;
+    }
+
+    public static void setLobbyMaxPlayerCount(int count) {
+        lobbyMaxPlayerCount = count;
+        config.get(Configuration.CATEGORY_GENERAL, "lobbyMaxPlayerCount", 8).set(count);
         config.save();
     }
 

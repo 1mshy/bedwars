@@ -28,7 +28,7 @@ import java.util.regex.Pattern;
 
 public class BedwarsRuntime {
     private static final Pattern LOBBY_JOIN_MESSAGE_PATTERN = Pattern
-            .compile("^[A-Za-z0-9_]{1,16} has joined \\(\\d+/\\d+\\)[.!]?$");
+            .compile("^[A-Za-z0-9_]{1,16} has joined \\((\\d+)/\\d+\\)[.!]?$");
     private static final Pattern CHAT_MESSAGE_PATTERN = Pattern
             .compile("^(?:\\[[^\\]]+\\] )*([A-Za-z0-9_]{1,16}): .+$");
     private static final Pattern RECONNECT_MESSAGE_PATTERN = Pattern.compile("^([A-Za-z0-9_]{1,16}) reconnected\\.$");
@@ -462,8 +462,24 @@ public class BedwarsRuntime {
             return;
         }
 
-        if (!LOBBY_JOIN_MESSAGE_PATTERN.matcher(message).matches()) {
+        Matcher lobbyJoinMatcher = LOBBY_JOIN_MESSAGE_PATTERN.matcher(message);
+        if (!lobbyJoinMatcher.matches()) {
             return;
+        }
+
+        // Check if lobby player count exceeds the configured max (pregame only)
+        if (state.autoplayEnabled && !state.inBedwarsLobby) {
+            int currentPlayers = Integer.parseInt(lobbyJoinMatcher.group(1));
+            int maxPlayers = ModConfig.getLobbyMaxPlayerCount();
+            if (currentPlayers >= maxPlayers) {
+                String reason = EnumChatFormatting.RED + "Lobby player count (" +
+                        EnumChatFormatting.YELLOW + "" + currentPlayers +
+                        EnumChatFormatting.RED + ") reached max (" +
+                        EnumChatFormatting.YELLOW + "" + maxPlayers +
+                        EnumChatFormatting.RED + ")";
+                worldScanService.requeueAutoplay(mc, reason);
+                return;
+            }
         }
 
         if (state.joinMessageBurstTick != state.clientTickCounter) {
