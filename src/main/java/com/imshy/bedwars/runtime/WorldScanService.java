@@ -71,6 +71,47 @@ public class WorldScanService {
         return GAME_MODE_COMMANDS.get(mode);
     }
 
+    public void requeueAutoplay(Minecraft mc, String reasonMessage) {
+        if (mc == null || mc.thePlayer == null || !state.autoplayEnabled) {
+            return;
+        }
+
+        if (reasonMessage != null && !reasonMessage.isEmpty()) {
+            mc.thePlayer.addChatMessage(new ChatComponentText(
+                    EnumChatFormatting.GOLD + "[Autoplay] " + reasonMessage));
+        }
+
+        mc.thePlayer.addChatMessage(new ChatComponentText(
+                EnumChatFormatting.GOLD + "[Autoplay] " +
+                        EnumChatFormatting.YELLOW + "Requeuing..."));
+
+        state.inBedwarsLobby = false;
+        state.autoplayPendingCheck = false;
+        synchronized (state.recentJoins) {
+            state.recentJoins.clear();
+        }
+
+        mc.thePlayer.sendChatMessage("/lobby");
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Thread.sleep(1500);
+                    Minecraft mc = Minecraft.getMinecraft();
+                    if (mc.thePlayer != null && state.autoplayEnabled) {
+                        String playCommand = GAME_MODE_COMMANDS.get(state.autoplayMode);
+                        if (playCommand != null) {
+                            mc.thePlayer.sendChatMessage(playCommand);
+                        }
+                    }
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
+    }
+
     public void checkForInvisiblePlayers(Minecraft mc, long currentTime) {
         int detectionRange = ModConfig.getInvisibleDetectionRange();
         int cooldown = ModConfig.getInvisibleWarningCooldown();
@@ -184,38 +225,9 @@ public class WorldScanService {
         }
 
         if (!threatPlayers.isEmpty()) {
-            mc.thePlayer.addChatMessage(new ChatComponentText(
-                    EnumChatFormatting.GOLD + "[Autoplay] " +
-                            EnumChatFormatting.RED + "Threats detected: " +
-                            EnumChatFormatting.YELLOW + String.join(", ", threatPlayers)));
-            mc.thePlayer.addChatMessage(new ChatComponentText(
-                    EnumChatFormatting.GOLD + "[Autoplay] " +
-                            EnumChatFormatting.YELLOW + "Requeuing..."));
-
-            state.inBedwarsLobby = false;
-            synchronized (state.recentJoins) {
-                state.recentJoins.clear();
-            }
-
-            mc.thePlayer.sendChatMessage("/lobby");
-
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        Thread.sleep(1500);
-                        Minecraft mc = Minecraft.getMinecraft();
-                        if (mc.thePlayer != null && state.autoplayEnabled) {
-                            String playCommand = GAME_MODE_COMMANDS.get(state.autoplayMode);
-                            if (playCommand != null) {
-                                mc.thePlayer.sendChatMessage(playCommand);
-                            }
-                        }
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                }
-            }).start();
+            requeueAutoplay(mc,
+                    EnumChatFormatting.RED + "Threats detected: " +
+                            EnumChatFormatting.YELLOW + String.join(", ", threatPlayers));
         } else {
             mc.thePlayer.addChatMessage(new ChatComponentText(
                     EnumChatFormatting.GOLD + "[Autoplay] " +

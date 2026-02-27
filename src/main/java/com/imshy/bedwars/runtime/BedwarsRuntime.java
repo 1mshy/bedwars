@@ -316,6 +316,10 @@ public class BedwarsRuntime {
             return;
         }
 
+        if (isAutoplayEnabled()) {
+            mc.thePlayer.addChatMessage(new ChatComponentText(message));
+        }
+
         if (!LOBBY_JOIN_MESSAGE_PATTERN.matcher(message).matches()) {
             return;
         }
@@ -335,6 +339,18 @@ public class BedwarsRuntime {
                             EnumChatFormatting.RED + "Party warning: " +
                             EnumChatFormatting.YELLOW + state.joinMessageBurstCount +
                             EnumChatFormatting.GRAY + " players joined in the same tick."));
+        }
+
+        if (state.joinMessageBurstCount > PARTY_JOIN_WARNING_THRESHOLD &&
+                state.inBedwarsLobby &&
+                state.autoplayEnabled &&
+                "fours".equals(state.autoplayMode) &&
+                state.lastPartyAutoplaySwapTick != state.clientTickCounter) {
+            state.lastPartyAutoplaySwapTick = state.clientTickCounter;
+            worldScanService.requeueAutoplay(mc,
+                    EnumChatFormatting.RED + "Party burst detected: " +
+                            EnumChatFormatting.YELLOW + state.joinMessageBurstCount +
+                            EnumChatFormatting.GRAY + " joins in the same tick.");
         }
     }
 }
