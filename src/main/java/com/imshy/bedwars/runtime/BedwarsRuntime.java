@@ -341,8 +341,7 @@ public class BedwarsRuntime {
                             EnumChatFormatting.GRAY + " players joined in the same tick."));
         }
 
-        if (state.joinMessageBurstCount > PARTY_JOIN_WARNING_THRESHOLD &&
-                state.inBedwarsLobby &&
+        if (state.joinMessageBurstCount >= PARTY_JOIN_WARNING_THRESHOLD &&
                 state.autoplayEnabled &&
                 "fours".equals(state.autoplayMode) &&
                 state.lastPartyAutoplaySwapTick != state.clientTickCounter) {
