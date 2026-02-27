@@ -46,12 +46,14 @@ final class RuntimeState {
 
     final Map<String, Long> invisiblePlayerWarnings = new HashMap<String, Long>();
 
-    final Map<BlockPos, WorldScanService.GeneratorEntry> trackedGenerators =
-            new HashMap<BlockPos, WorldScanService.GeneratorEntry>();
+    final Map<BlockPos, WorldScanService.GeneratorEntry> trackedGenerators = new HashMap<BlockPos, WorldScanService.GeneratorEntry>();
     long lastGeneratorScan = 0;
 
     long lastRushPredictorCheck = 0;
     boolean rushRiskWarningSent = false;
     int lastPredictedRushEtaSeconds = -1;
+
+    boolean disconnectedFromGame = false;
+    long disconnectTime = 0;
     String lastDetectedMapName = "Unknown";
 }

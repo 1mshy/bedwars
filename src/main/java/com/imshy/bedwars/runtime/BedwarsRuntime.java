@@ -26,15 +26,15 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class BedwarsRuntime {
-    private static final Pattern LOBBY_JOIN_MESSAGE_PATTERN =
-            Pattern.compile("^[A-Za-z0-9_]{1,16} has joined \\(\\d+/\\d+\\)[.!]?$");
-    private static final Pattern CHAT_MESSAGE_PATTERN =
-            Pattern.compile("^(?:\\[[A-Z+]+\\] )?([A-Za-z0-9_]{1,16}): .+$");
+    private static final Pattern LOBBY_JOIN_MESSAGE_PATTERN = Pattern
+            .compile("^[A-Za-z0-9_]{1,16} has joined \\(\\d+/\\d+\\)[.!]?$");
+    private static final Pattern CHAT_MESSAGE_PATTERN = Pattern
+            .compile("^(?:\\[[A-Z+]+\\] )?([A-Za-z0-9_]{1,16}): .+$");
+    private static final Pattern RECONNECT_MESSAGE_PATTERN = Pattern.compile("^([A-Za-z0-9_]{1,16}) reconnected\\.$");
     private static final int PARTY_JOIN_WARNING_THRESHOLD = 4;
-    private static final Pattern PARTY_LINE_PATTERN =
-            Pattern.compile("^Party (?:Leader|Members|Moderators): (.+)$");
-    private static final Pattern PARTY_MEMBER_NAME_PATTERN =
-            Pattern.compile("(?:\\[[A-Za-z0-9+]+\\] )?([A-Za-z0-9_]{1,16})");
+    private static final Pattern PARTY_LINE_PATTERN = Pattern.compile("^Party (?:Leader|Members|Moderators): (.+)$");
+    private static final Pattern PARTY_MEMBER_NAME_PATTERN = Pattern
+            .compile("(?:\\[[A-Za-z0-9+]+\\] )?([A-Za-z0-9_]{1,16})");
     private static final long PARTY_LIST_TIMEOUT_MS = 3000;
 
     private final RuntimeState state;
@@ -57,6 +57,10 @@ public class BedwarsRuntime {
 
     public boolean isInBedwarsLobby() {
         return state.inBedwarsLobby;
+    }
+
+    public boolean isDisconnectedFromGame() {
+        return state.disconnectedFromGame;
     }
 
     public int getLastPredictedRushEtaSeconds() {
@@ -162,6 +166,7 @@ public class BedwarsRuntime {
         parsePartyListResponse(mc, message);
         trackJoinMessageBurst(mc, message);
         handleChatMessageStatLookup(mc, message);
+        handleReconnectMessage(mc, message);
 
         if (message.contains("Protect your bed and destroy the enemy beds.")) {
             if (!state.inBedwarsLobby) {
@@ -181,6 +186,7 @@ public class BedwarsRuntime {
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.WIN);
                 PlayerDatabase.getInstance().clearCurrentGame();
                 state.inBedwarsLobby = false;
+                state.disconnectedFromGame = false;
                 matchThreatService.clearBedTrackingState();
                 lobbyTrackerService.clearRecentJoins();
                 return;
@@ -205,6 +211,7 @@ public class BedwarsRuntime {
 
                 db.clearCurrentGame();
                 state.inBedwarsLobby = false;
+                state.disconnectedFromGame = false;
                 matchThreatService.clearBedTrackingState();
                 lobbyTrackerService.clearRecentJoins();
                 return;
@@ -214,6 +221,7 @@ public class BedwarsRuntime {
         if (message.contains("You left.") || message.contains("Sending you to")) {
             if (state.inBedwarsLobby) {
                 state.inBedwarsLobby = false;
+                state.disconnectedFromGame = false;
                 matchThreatService.clearBedTrackingState();
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.UNKNOWN);
                 PlayerDatabase.getInstance().clearCurrentGame();
@@ -241,6 +249,20 @@ public class BedwarsRuntime {
         Minecraft mc = Minecraft.getMinecraft();
 
         if (mc.thePlayer != null && player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+            // The local player joining a new world while in a game means disconnection
+            if (!state.disconnectedFromGame) {
+                state.disconnectedFromGame = true;
+                state.disconnectTime = System.currentTimeMillis();
+                System.out.println("[BedwarsStats] Disconnected from game — tracking paused.");
+                mc.thePlayer.addChatMessage(new ChatComponentText(
+                        EnumChatFormatting.GOLD + "[BW] " +
+                                EnumChatFormatting.RED + "\u26A0 Disconnected from game \u2014 tracking paused."));
+            }
+            return;
+        }
+
+        // Skip stat lookups for other players while disconnected
+        if (state.disconnectedFromGame) {
             return;
         }
 
@@ -285,6 +307,11 @@ public class BedwarsRuntime {
 
         if (!state.inBedwarsLobby) {
             worldScanService.clearTrackedGenerators();
+            return;
+        }
+
+        // Skip all game-awareness processing while disconnected
+        if (state.disconnectedFromGame) {
             return;
         }
 
@@ -438,7 +465,8 @@ public class BedwarsRuntime {
     }
 
     private void handleChatMessageStatLookup(Minecraft mc, String message) {
-        if (mc == null || mc.thePlayer == null || message == null || !state.inBedwarsLobby) {
+        if (mc == null || mc.thePlayer == null || message == null || !state.inBedwarsLobby
+                || state.disconnectedFromGame) {
             return;
         }
 
@@ -540,5 +568,26 @@ public class BedwarsRuntime {
                 System.out.println("[BedwarsStats] Chat lookup error for " + chatterName + ": " + error);
             }
         });
+    }
+
+    private void handleReconnectMessage(Minecraft mc, String message) {
+        if (!state.inBedwarsLobby || !state.disconnectedFromGame) {
+            return;
+        }
+
+        if (mc == null || mc.thePlayer == null) {
+            return;
+        }
+
+        String playerName = mc.thePlayer.getName();
+        Matcher matcher = RECONNECT_MESSAGE_PATTERN.matcher(message);
+        if (matcher.matches() && matcher.group(1).equals(playerName)) {
+            state.disconnectedFromGame = false;
+            state.disconnectTime = 0;
+            System.out.println("[BedwarsStats] Reconnected to game — tracking resumed.");
+            mc.thePlayer.addChatMessage(new ChatComponentText(
+                    EnumChatFormatting.GOLD + "[BW] " +
+                            EnumChatFormatting.GREEN + "\u2713 Reconnected \u2014 tracking resumed."));
+        }
     }
 }

@@ -24,6 +24,8 @@ public class LobbyTrackerService {
 
     public void activateBedwarsLobbyTracking(Minecraft mc) {
         state.inBedwarsLobby = true;
+        state.disconnectedFromGame = false;
+        state.disconnectTime = 0;
         state.trackedGenerators.clear();
         state.lastGeneratorScan = 0;
 
