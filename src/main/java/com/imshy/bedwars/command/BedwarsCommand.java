@@ -5,6 +5,7 @@ import com.imshy.bedwars.HypixelAPI;
 import com.imshy.bedwars.ModConfig;
 import com.imshy.bedwars.PlayerDatabase;
 import com.imshy.bedwars.runtime.BedwarsRuntime;
+import com.imshy.bedwars.runtime.GamePhase;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.command.CommandBase;
@@ -181,7 +182,7 @@ public class BedwarsCommand extends CommandBase {
 
             sendMessage(sender, String.format("Blacklist: %d players", db.getBlacklistSize()));
             sendMessage(sender, String.format("History: %d unique players", db.getHistorySize()));
-            sendMessage(sender, "In Bedwars lobby: " + (runtime.isInBedwarsLobby() ? "Yes" : "No"));
+            sendMessage(sender, "Game phase: " + runtime.getGamePhase().name());
             sendMessage(sender, "Rush predictor: " + (ModConfig.isRushPredictorEnabled() ? "Enabled" : "Disabled"));
             if (ModConfig.isRushPredictorEnabled()) {
                 int eta = runtime.getLastPredictedRushEtaSeconds();
@@ -517,7 +518,7 @@ public class BedwarsCommand extends CommandBase {
             return;
         }
 
-        boolean wasTracking = runtime.rerunLobbyStartup(mc);
+        boolean wasTracking = runtime.rerunMatchStartup(mc);
 
         if (wasTracking) {
             sendMessage(sender, EnumChatFormatting.GREEN + "Re-ran Bedwars startup flow for this match.");

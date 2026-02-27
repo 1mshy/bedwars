@@ -47,7 +47,7 @@ public class TeamDangerAnalyzer {
     }
 
     public List<TeamDangerEntry> buildTeamDangerSummary(Minecraft mc) {
-        if (!state.inBedwarsLobby || mc == null || mc.theWorld == null || mc.thePlayer == null) {
+        if (state.gamePhase != GamePhase.IN_GAME || mc == null || mc.theWorld == null || mc.thePlayer == null) {
             return new ArrayList<TeamDangerEntry>();
         }
 

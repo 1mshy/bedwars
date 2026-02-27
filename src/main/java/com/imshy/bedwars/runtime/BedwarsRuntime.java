@@ -68,8 +68,12 @@ public class BedwarsRuntime {
         this.hudRenderer = new BedwarsHudRenderer();
     }
 
-    public boolean isInBedwarsLobby() {
-        return state.inBedwarsLobby;
+    public boolean isInMatch() {
+        return state.gamePhase == GamePhase.IN_GAME;
+    }
+
+    public GamePhase getGamePhase() {
+        return state.gamePhase;
     }
 
     public boolean isDisconnectedFromGame() {
@@ -88,9 +92,9 @@ public class BedwarsRuntime {
         lobbyTrackerService.clearRecentJoins();
     }
 
-    public boolean rerunLobbyStartup(Minecraft mc) {
-        boolean wasTracking = state.inBedwarsLobby;
-        lobbyTrackerService.activateBedwarsLobbyTracking(mc);
+    public boolean rerunMatchStartup(Minecraft mc) {
+        boolean wasTracking = state.gamePhase == GamePhase.IN_GAME;
+        lobbyTrackerService.activateMatchTracking(mc);
         return wasTracking;
     }
 
@@ -183,12 +187,12 @@ public class BedwarsRuntime {
         handleReconnectMessage(mc, message);
 
         if (message.contains("Protect your bed and destroy the enemy beds.")) {
-            if (!state.inBedwarsLobby) {
-                lobbyTrackerService.activateBedwarsLobbyTracking(mc);
+            if (state.gamePhase != GamePhase.IN_GAME) {
+                lobbyTrackerService.activateMatchTracking(mc);
             }
         }
 
-        if (state.inBedwarsLobby && mc.thePlayer != null) {
+        if (state.gamePhase == GamePhase.IN_GAME && mc.thePlayer != null) {
             String playerName = mc.thePlayer.getName();
 
             if (message.contains("VICTORY!") ||
@@ -199,7 +203,7 @@ public class BedwarsRuntime {
                 System.out.println("[BedwarsStats] WIN detected!");
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.WIN);
                 PlayerDatabase.getInstance().clearCurrentGame();
-                state.inBedwarsLobby = false;
+                state.gamePhase = GamePhase.IDLE;
                 state.disconnectedFromGame = false;
                 state.chatDetectedPlayers.clear();
                 state.chatDetectedStartTime = 0;
@@ -227,7 +231,7 @@ public class BedwarsRuntime {
                 }
 
                 db.clearCurrentGame();
-                state.inBedwarsLobby = false;
+                state.gamePhase = GamePhase.IDLE;
                 state.disconnectedFromGame = false;
                 state.chatDetectedPlayers.clear();
                 state.chatDetectedStartTime = 0;
@@ -244,8 +248,7 @@ public class BedwarsRuntime {
             }
             state.chatDetectedStartTime = 0;
             state.lobbyBaitActive = false;
-            if (state.inBedwarsLobby) {
-                state.inBedwarsLobby = false;
+            if (state.gamePhase == GamePhase.IN_GAME) {
                 state.disconnectedFromGame = false;
                 matchThreatService.clearBedTrackingState();
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.UNKNOWN);
@@ -253,6 +256,7 @@ public class BedwarsRuntime {
                 lobbyTrackerService.clearRecentJoins();
                 System.out.println("[BedwarsStats] Left Bedwars game - unknown outcome.");
             }
+            state.gamePhase = GamePhase.IDLE;
         }
     }
 
@@ -262,7 +266,7 @@ public class BedwarsRuntime {
             return;
         }
 
-        if (!state.inBedwarsLobby) {
+        if (state.gamePhase != GamePhase.IN_GAME) {
             return;
         }
 
@@ -321,9 +325,9 @@ public class BedwarsRuntime {
             synchronized (state.chatDetectedPlayers) {
                 hasDetectedPlayers = !state.chatDetectedPlayers.isEmpty();
             }
-            if (state.inBedwarsLobby || hasDetectedPlayers) {
+            if (state.gamePhase == GamePhase.IN_GAME || hasDetectedPlayers) {
                 ScaledResolution resolution = new ScaledResolution(mc);
-                hudRenderer.render(resolution, mc, teamDangerAnalyzer, worldScanService, state.gameStartTime,
+                hudRenderer.render(resolution, mc, teamDangerAnalyzer, worldScanService, state.matchStartTime,
                         state.chatDetectedPlayers);
             }
         }
@@ -339,14 +343,33 @@ public class BedwarsRuntime {
 
         Minecraft mc = Minecraft.getMinecraft();
 
-        if (state.autoplayEnabled && state.autoplayPendingCheck && state.inBedwarsLobby) {
+        if (state.autoplayEnabled && state.autoplayPendingCheck && state.gamePhase == GamePhase.IN_GAME) {
             if (System.currentTimeMillis() >= state.autoplayCheckTime) {
                 state.autoplayPendingCheck = false;
                 worldScanService.performAutoplayCheck(mc);
             }
         }
 
-        if (!state.inBedwarsLobby) {
+        // Lobby bait retry (PRE_GAME only)
+        if (state.gamePhase == GamePhase.PRE_GAME && mc.theWorld != null && mc.thePlayer != null) {
+            long currentTime = System.currentTimeMillis();
+            if (state.lobbyBaitActive && !state.lobbyBaitRetrySent
+                    && state.lobbyBaitFirstSentTime > 0
+                    && currentTime - state.lobbyBaitFirstSentTime >= LOBBY_BAIT_RETRY_DELAY_MS) {
+                int newIndex;
+                do {
+                    newIndex = baitRandom.nextInt(LOBBY_BAIT_MESSAGES.length);
+                } while (newIndex == state.lobbyBaitMessageIndex && LOBBY_BAIT_MESSAGES.length > 1);
+                mc.thePlayer.sendChatMessage(LOBBY_BAIT_MESSAGES[newIndex]);
+                state.lobbyBaitRetrySent = true;
+            }
+            if (state.lobbyBaitActive && state.lobbyBaitRetrySent
+                    && currentTime - state.lobbyBaitFirstSentTime >= LOBBY_BAIT_RETRY_DELAY_MS * 2) {
+                state.lobbyBaitActive = false;
+            }
+        }
+
+        if (state.gamePhase != GamePhase.IN_GAME) {
             worldScanService.clearTrackedGenerators();
             return;
         }
@@ -361,23 +384,6 @@ public class BedwarsRuntime {
         }
 
         long currentTime = System.currentTimeMillis();
-
-        // Lobby bait retry after 4 seconds of silence
-        if (state.lobbyBaitActive && !state.lobbyBaitRetrySent
-                && state.lobbyBaitFirstSentTime > 0
-                && currentTime - state.lobbyBaitFirstSentTime >= LOBBY_BAIT_RETRY_DELAY_MS) {
-            int newIndex;
-            do {
-                newIndex = baitRandom.nextInt(LOBBY_BAIT_MESSAGES.length);
-            } while (newIndex == state.lobbyBaitMessageIndex && LOBBY_BAIT_MESSAGES.length > 1);
-            mc.thePlayer.sendChatMessage(LOBBY_BAIT_MESSAGES[newIndex]);
-            state.lobbyBaitRetrySent = true;
-        }
-        // Give up after retry + another 4 seconds
-        if (state.lobbyBaitActive && state.lobbyBaitRetrySent
-                && currentTime - state.lobbyBaitFirstSentTime >= LOBBY_BAIT_RETRY_DELAY_MS * 2) {
-            state.lobbyBaitActive = false;
-        }
 
         matchThreatService.captureEarlySpawnTeammates(mc, currentTime);
 
@@ -437,7 +443,7 @@ public class BedwarsRuntime {
 
     @SubscribeEvent
     public void onRenderWorldLast(RenderWorldLastEvent event) {
-        if (!state.inBedwarsLobby || !ModConfig.isGeneratorDisplayEnabled()) {
+        if (state.gamePhase != GamePhase.IN_GAME || !ModConfig.isGeneratorDisplayEnabled()) {
             return;
         }
 
@@ -468,7 +474,7 @@ public class BedwarsRuntime {
         }
 
         // Check if lobby player count exceeds the configured max (pregame only)
-        if (state.autoplayEnabled && !state.inBedwarsLobby) {
+        if (state.autoplayEnabled && state.gamePhase != GamePhase.IN_GAME) {
             int currentPlayers = Integer.parseInt(lobbyJoinMatcher.group(1));
             int maxPlayers = ModConfig.getLobbyMaxPlayerCount();
             if (currentPlayers >= maxPlayers) {
@@ -482,8 +488,8 @@ public class BedwarsRuntime {
             }
         }
 
-        if (state.joinMessageBurstTick != state.clientTickCounter) {
-            state.joinMessageBurstTick = state.clientTickCounter;
+        if (state.joinBurstTickStamp != state.clientTickCounter) {
+            state.joinBurstTickStamp = state.clientTickCounter;
             state.joinMessageBurstCount = 0;
             state.joinBurstContainsMainUser = false;
             state.joinBurstNames.clear();
@@ -493,6 +499,10 @@ public class BedwarsRuntime {
         state.joinBurstNames.add(joinerName);
         if (joinerName.equals(mc.thePlayer.getName())) {
             state.joinBurstContainsMainUser = true;
+            // Transition to PRE_GAME when local player joins a bedwars pre-lobby
+            if (state.gamePhase == GamePhase.IDLE) {
+                state.gamePhase = GamePhase.PRE_GAME;
+            }
             // Arm lobby bait messages when the local player joins the pre-lobby
             if (ModConfig.isLobbyBaitMessagesEnabled() && !state.lobbyBaitActive) {
                 state.lobbyBaitActive = true;
@@ -515,8 +525,8 @@ public class BedwarsRuntime {
 
         if (state.joinMessageBurstCount >= PARTY_JOIN_WARNING_THRESHOLD &&
                 !state.joinBurstContainsMainUser &&
-                state.lastPartyWarningTick != state.clientTickCounter) {
-            state.lastPartyWarningTick = state.clientTickCounter;
+                state.lastPartyWarningTickStamp != state.clientTickCounter) {
+            state.lastPartyWarningTickStamp = state.clientTickCounter;
             mc.thePlayer.addChatMessage(new ChatComponentText(
                     EnumChatFormatting.GOLD + "[BW] " +
                             EnumChatFormatting.RED + "Party warning: " +
@@ -528,12 +538,12 @@ public class BedwarsRuntime {
                 !state.joinBurstContainsMainUser &&
                 state.autoplayEnabled &&
                 "fours".equals(state.autoplayMode) &&
-                state.lastPartyAutoplaySwapTick != state.clientTickCounter) {
-            state.lastPartyAutoplaySwapTick = state.clientTickCounter;
+                state.lastPartyAutoplaySwapTickStamp != state.clientTickCounter) {
+            state.lastPartyAutoplaySwapTickStamp = state.clientTickCounter;
             String burstMessage = EnumChatFormatting.RED + "Party burst detected: " +
                     EnumChatFormatting.YELLOW + state.joinMessageBurstCount +
                     EnumChatFormatting.GRAY + " joins in the same tick.";
-            if (ModConfig.isAutoplayRequeueEnabled() || !state.inBedwarsLobby) {
+            if (ModConfig.isAutoplayRequeueEnabled() || state.gamePhase != GamePhase.IN_GAME) {
                 worldScanService.requeueAutoplay(mc, burstMessage);
             } else {
                 mc.thePlayer.addChatMessage(new ChatComponentText(
@@ -654,7 +664,7 @@ public class BedwarsRuntime {
                             String threatMessage = EnumChatFormatting.RED + "Chat threat detected: " +
                                     EnumChatFormatting.YELLOW + chatterName +
                                     " (" + threat.name() + ")";
-                            if (ModConfig.isAutoplayRequeueEnabled() || !state.inBedwarsLobby) {
+                            if (ModConfig.isAutoplayRequeueEnabled() || state.gamePhase != GamePhase.IN_GAME) {
                                 worldScanService.requeueAutoplay(mcInner, threatMessage);
                             } else if (mcInner.thePlayer != null) {
                                 mcInner.thePlayer.addChatMessage(new ChatComponentText(
@@ -701,7 +711,7 @@ public class BedwarsRuntime {
     }
 
     private void handleReconnectMessage(Minecraft mc, String message) {
-        if (!state.inBedwarsLobby || !state.disconnectedFromGame) {
+        if (state.gamePhase != GamePhase.IN_GAME || !state.disconnectedFromGame) {
             return;
         }
 

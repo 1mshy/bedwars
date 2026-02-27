@@ -136,7 +136,7 @@ public class MatchThreatService {
     }
 
     public void checkRushRiskPredictor(Minecraft mc, long currentTime) {
-        if (state.gameStartTime <= 0 || (currentTime - state.gameStartTime) > RUSH_PREDICTOR_ACTIVE_WINDOW_MS) {
+        if (state.matchStartTime <= 0 || (currentTime - state.matchStartTime) > RUSH_PREDICTOR_ACTIVE_WINDOW_MS) {
             return;
         }
 
@@ -162,7 +162,7 @@ public class MatchThreatService {
 
         state.lastPredictedRushEtaSeconds = estimate.etaSeconds;
 
-        long predictedRushTimestamp = state.gameStartTime + (estimate.etaSeconds * 1000L);
+        long predictedRushTimestamp = state.matchStartTime + (estimate.etaSeconds * 1000L);
         long secondsUntilRush = (predictedRushTimestamp - currentTime + 999L) / 1000L;
 
         if (state.rushRiskWarningSent || secondsUntilRush <= 0) {
@@ -194,7 +194,7 @@ public class MatchThreatService {
             return;
         }
 
-        if (currentTime - state.gameStartTime < BED_WARNING_START_DELAY) {
+        if (currentTime - state.matchStartTime < BED_WARNING_START_DELAY) {
             return;
         }
 
@@ -344,9 +344,9 @@ public class MatchThreatService {
     }
 
     private boolean isWithinSpawnTeammateWindow(long currentTime) {
-        return state.inBedwarsLobby &&
-                state.gameStartTime > 0 &&
-                (currentTime - state.gameStartTime) <= TEAMMATE_SPAWN_CAPTURE_WINDOW_MS;
+        return state.gamePhase == GamePhase.IN_GAME &&
+                state.matchStartTime > 0 &&
+                (currentTime - state.matchStartTime) <= TEAMMATE_SPAWN_CAPTURE_WINDOW_MS;
     }
 
     private static String getPlayerTeamKey(EntityPlayer player) {

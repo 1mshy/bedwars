@@ -36,7 +36,7 @@ public class BedwarsHudRenderer {
 
     public void render(ScaledResolution resolution, Minecraft mc,
                        TeamDangerAnalyzer teamDangerAnalyzer, WorldScanService worldScanService,
-                       long gameStartTime, List<ChatDetectedPlayer> chatDetectedPlayers) {
+                       long matchStartTime, List<ChatDetectedPlayer> chatDetectedPlayers) {
         if (!ModConfig.isHudEnabled()) {
             return;
         }
@@ -45,7 +45,7 @@ public class BedwarsHudRenderer {
         double scale = ModConfig.getHudScale();
 
         List<HudLine> lines = new ArrayList<HudLine>();
-        buildHudContent(lines, mc, fr, teamDangerAnalyzer, worldScanService, gameStartTime, chatDetectedPlayers);
+        buildHudContent(lines, mc, fr, teamDangerAnalyzer, worldScanService, matchStartTime, chatDetectedPlayers);
 
         if (lines.isEmpty()) {
             return;
@@ -109,7 +109,7 @@ public class BedwarsHudRenderer {
 
     private void buildHudContent(List<HudLine> lines, Minecraft mc, FontRenderer fr,
                                   TeamDangerAnalyzer teamDangerAnalyzer, WorldScanService worldScanService,
-                                  long gameStartTime, List<ChatDetectedPlayer> chatDetectedPlayers) {
+                                  long matchStartTime, List<ChatDetectedPlayer> chatDetectedPlayers) {
         boolean addedSection = false;
 
         if (ModConfig.isHudHighestThreatEnabled()) {
@@ -128,7 +128,7 @@ public class BedwarsHudRenderer {
             if (addedSection) {
                 lines.add(HudLine.gap());
             }
-            boolean added = addTeamSummarySection(lines, mc, teamDangerAnalyzer, gameStartTime);
+            boolean added = addTeamSummarySection(lines, mc, teamDangerAnalyzer, matchStartTime);
             addedSection = addedSection || added;
         }
 
@@ -198,9 +198,9 @@ public class BedwarsHudRenderer {
     }
 
     private boolean addTeamSummarySection(List<HudLine> lines, Minecraft mc,
-                                           TeamDangerAnalyzer teamDangerAnalyzer, long gameStartTime) {
-        boolean earlyPhase = gameStartTime <= 0
-                || (System.currentTimeMillis() - gameStartTime) < TEAM_SUMMARY_DURATION_MS;
+                                           TeamDangerAnalyzer teamDangerAnalyzer, long matchStartTime) {
+        boolean earlyPhase = matchStartTime <= 0
+                || (System.currentTimeMillis() - matchStartTime) < TEAM_SUMMARY_DURATION_MS;
 
         if (earlyPhase) {
             return addTeamLevelSummary(lines, mc, teamDangerAnalyzer);

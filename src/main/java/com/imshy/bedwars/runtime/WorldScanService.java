@@ -118,7 +118,7 @@ public class WorldScanService {
                 EnumChatFormatting.GOLD + "[Autoplay] " +
                         EnumChatFormatting.YELLOW + "Requeuing..."));
 
-        state.inBedwarsLobby = false;
+        state.gamePhase = GamePhase.IDLE;
         state.autoplayPendingCheck = false;
         synchronized (state.recentJoins) {
             state.recentJoins.clear();
@@ -289,7 +289,7 @@ public class WorldScanService {
         if (!enemyThreatPlayers.isEmpty()) {
             String threatMessage = EnumChatFormatting.RED + "Enemy threats detected: " +
                     EnumChatFormatting.YELLOW + String.join(", ", enemyThreatPlayers);
-            if (ModConfig.isAutoplayRequeueEnabled() || !state.inBedwarsLobby) {
+            if (ModConfig.isAutoplayRequeueEnabled() || state.gamePhase != GamePhase.IN_GAME) {
                 requeueAutoplay(mc, threatMessage);
             } else {
                 mc.thePlayer.addChatMessage(new ChatComponentText(

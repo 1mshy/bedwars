@@ -22,8 +22,8 @@ public class LobbyTrackerService {
         this.matchThreatService = matchThreatService;
     }
 
-    public void activateBedwarsLobbyTracking(Minecraft mc) {
-        state.inBedwarsLobby = true;
+    public void activateMatchTracking(Minecraft mc) {
+        state.gamePhase = GamePhase.IN_GAME;
         state.disconnectedFromGame = false;
         state.disconnectTime = 0;
         state.trackedGenerators.clear();
@@ -39,11 +39,11 @@ public class LobbyTrackerService {
 
         clearRecentJoins();
 
-        state.gameStartTime = System.currentTimeMillis();
+        state.matchStartTime = System.currentTimeMillis();
         matchThreatService.clearBedTrackingState();
 
         if (mc != null && mc.thePlayer != null) {
-            matchThreatService.startBedTracking(mc, state.gameStartTime);
+            matchThreatService.startBedTracking(mc, state.matchStartTime);
         }
 
         PlayerDatabase db = PlayerDatabase.getInstance();
@@ -54,7 +54,7 @@ public class LobbyTrackerService {
             scanExistingPlayers(mc);
         }
 
-        System.out.println("[BedwarsStats] Entered Bedwars lobby - stat tracking activated!");
+        System.out.println("[BedwarsStats] Bedwars match started - stat tracking activated!");
 
         if (state.autoplayEnabled) {
             state.autoplayCheckTime = System.currentTimeMillis() + RuntimeState.AUTOPLAY_CHECK_DELAY;
