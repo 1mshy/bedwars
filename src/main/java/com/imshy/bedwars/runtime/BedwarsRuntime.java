@@ -262,7 +262,7 @@ public class BedwarsRuntime {
 
         if (state.inBedwarsLobby && ModConfig.isHudEnabled()) {
             ScaledResolution resolution = new ScaledResolution(mc);
-            hudRenderer.render(resolution, mc, teamDangerAnalyzer, worldScanService);
+            hudRenderer.render(resolution, mc, teamDangerAnalyzer, worldScanService, state.gameStartTime);
         }
     }
 
