@@ -493,6 +493,11 @@ public class BedwarsRuntime {
             return;
         }
 
+        mc.thePlayer.addChatMessage(new ChatComponentText(
+                EnumChatFormatting.GOLD + "[BW] " +
+                        EnumChatFormatting.YELLOW + chatterName + " " +
+                        EnumChatFormatting.GRAY + "joined the game."));
+
         HypixelAPI.fetchStatsAsync(chatterName, new HypixelAPI.StatsCallback() {
             @Override
             public void onStatsLoaded(BedwarsStats stats) {

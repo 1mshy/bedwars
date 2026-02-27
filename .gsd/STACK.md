@@ -18,6 +18,9 @@
 | LWJGL | Built-in | Rendering (GL11) |
 
 ### Development
+**Building on Mac (Java 8):**
+`export JAVA_HOME=$(/usr/libexec/java_home -v 1.8); ./gradlew build`
+
 | Package | Version | Purpose |
 |---------|---------|---------|
 | ForgeGradle | 2.1-SNAPSHOT | Build Tool |

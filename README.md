@@ -147,7 +147,12 @@ java -version
 
 To build a distributable JAR:
 ```bash
+# Windows
 gradlew build
+
+# Linux/macOS (ensure Java 8 is active first)
+export JAVA_HOME=$(/usr/libexec/java_home -v 1.8)
+./gradlew build
 ```
 
 The output JAR will be in `build/libs/`.
