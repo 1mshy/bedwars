@@ -65,6 +65,9 @@ public class BedwarsOverlayRenderer {
 
     public void renderGeneratorLabel(BlockPos position, boolean isDiamond, int resourceCount,
             boolean hasDesignatedIngotOnTop, float partialTicks) {
+        if (resourceCount <= 0) {
+            return;
+        }
         Minecraft mc = Minecraft.getMinecraft();
         FontRenderer fontRenderer = mc.fontRendererObj;
 

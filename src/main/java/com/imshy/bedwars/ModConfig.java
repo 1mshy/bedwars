@@ -58,6 +58,9 @@ public class ModConfig {
     private static int generatorScanRange = 100; // blocks
     private static int generatorLabelRenderDistance = 256; // blocks
 
+    // Lobby bait messages
+    private static boolean lobbyBaitMessagesEnabled = true;
+
     // HUD overlay settings
     private static boolean hudEnabled = true;
     private static boolean hudHighestThreatEnabled = true;
@@ -429,6 +432,14 @@ public class ModConfig {
                     "Show stats of players detected via in-game chat on the HUD");
             hudChatDetectedEnabled = hudChatDetectedProp.getBoolean();
 
+            // Lobby bait messages
+            Property lobbyBaitProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "lobbyBaitMessagesEnabled",
+                    true,
+                    "Send bait messages in pre-lobby chat to provoke players into revealing their stats");
+            lobbyBaitMessagesEnabled = lobbyBaitProp.getBoolean();
+
             Property hudPositionProp = config.get(
                     Configuration.CATEGORY_GENERAL,
                     "hudPosition",
@@ -675,5 +686,9 @@ public class ModConfig {
 
     public static double getHudBackgroundOpacity() {
         return hudBackgroundOpacity;
+    }
+
+    public static boolean isLobbyBaitMessagesEnabled() {
+        return lobbyBaitMessagesEnabled;
     }
 }

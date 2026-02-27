@@ -31,6 +31,12 @@ public class LobbyTrackerService {
         state.chatDetectedPlayers.clear();
         state.chatDetectedStartTime = 0;
 
+        // Reset lobby bait state
+        state.lobbyBaitActive = false;
+        state.lobbyBaitFirstSentTime = 0;
+        state.lobbyBaitRetrySent = false;
+        state.lobbyBaitMessageIndex = -1;
+
         clearRecentJoins();
 
         state.gameStartTime = System.currentTimeMillis();

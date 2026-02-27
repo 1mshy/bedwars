@@ -22,6 +22,7 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 
 import java.util.List;
+import java.util.Random;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -36,6 +37,18 @@ public class BedwarsRuntime {
     private static final Pattern PARTY_MEMBER_NAME_PATTERN = Pattern
             .compile("(?:\\[[A-Za-z0-9+]+\\] )?([A-Za-z0-9_]{1,16})");
     private static final long PARTY_LIST_TIMEOUT_MS = 3000;
+    private static final long LOBBY_BAIT_RETRY_DELAY_MS = 4000;
+    private static final String[] LOBBY_BAIT_MESSAGES = {
+            "Is anyone good in this lobby?",
+            "Any sweats in here?",
+            "This lobby looks easy ngl",
+            "Anyone wanna party up?",
+            "I need a challenge lol",
+            "Any tryhards here?",
+            "Who's the best player here?",
+            "This lobby is gonna be quick"
+    };
+    private static final Random baitRandom = new Random();
 
     private final RuntimeState state;
     private final TeamDangerAnalyzer teamDangerAnalyzer;
@@ -165,6 +178,7 @@ public class BedwarsRuntime {
 
         parsePartyListResponse(mc, message);
         trackJoinMessageBurst(mc, message);
+        checkLobbyBaitResponse(mc, message);
         handleChatMessageStatLookup(mc, message);
         handleReconnectMessage(mc, message);
 
@@ -189,6 +203,7 @@ public class BedwarsRuntime {
                 state.disconnectedFromGame = false;
                 state.chatDetectedPlayers.clear();
                 state.chatDetectedStartTime = 0;
+                state.lobbyBaitActive = false;
                 matchThreatService.clearBedTrackingState();
                 lobbyTrackerService.clearRecentJoins();
                 return;
@@ -216,6 +231,7 @@ public class BedwarsRuntime {
                 state.disconnectedFromGame = false;
                 state.chatDetectedPlayers.clear();
                 state.chatDetectedStartTime = 0;
+                state.lobbyBaitActive = false;
                 matchThreatService.clearBedTrackingState();
                 lobbyTrackerService.clearRecentJoins();
                 return;
@@ -227,6 +243,7 @@ public class BedwarsRuntime {
                 state.chatDetectedPlayers.clear();
             }
             state.chatDetectedStartTime = 0;
+            state.lobbyBaitActive = false;
             if (state.inBedwarsLobby) {
                 state.inBedwarsLobby = false;
                 state.disconnectedFromGame = false;
@@ -345,6 +362,23 @@ public class BedwarsRuntime {
 
         long currentTime = System.currentTimeMillis();
 
+        // Lobby bait retry after 4 seconds of silence
+        if (state.lobbyBaitActive && !state.lobbyBaitRetrySent
+                && state.lobbyBaitFirstSentTime > 0
+                && currentTime - state.lobbyBaitFirstSentTime >= LOBBY_BAIT_RETRY_DELAY_MS) {
+            int newIndex;
+            do {
+                newIndex = baitRandom.nextInt(LOBBY_BAIT_MESSAGES.length);
+            } while (newIndex == state.lobbyBaitMessageIndex && LOBBY_BAIT_MESSAGES.length > 1);
+            mc.thePlayer.sendChatMessage(LOBBY_BAIT_MESSAGES[newIndex]);
+            state.lobbyBaitRetrySent = true;
+        }
+        // Give up after retry + another 4 seconds
+        if (state.lobbyBaitActive && state.lobbyBaitRetrySent
+                && currentTime - state.lobbyBaitFirstSentTime >= LOBBY_BAIT_RETRY_DELAY_MS * 2) {
+            state.lobbyBaitActive = false;
+        }
+
         matchThreatService.captureEarlySpawnTeammates(mc, currentTime);
 
         if (state.fallbackBedPosition == null) {
@@ -443,6 +477,14 @@ public class BedwarsRuntime {
         state.joinBurstNames.add(joinerName);
         if (joinerName.equals(mc.thePlayer.getName())) {
             state.joinBurstContainsMainUser = true;
+            // Arm lobby bait messages when the local player joins the pre-lobby
+            if (ModConfig.isLobbyBaitMessagesEnabled() && !state.lobbyBaitActive) {
+                state.lobbyBaitActive = true;
+                state.lobbyBaitRetrySent = false;
+                state.lobbyBaitMessageIndex = baitRandom.nextInt(LOBBY_BAIT_MESSAGES.length);
+                mc.thePlayer.sendChatMessage(LOBBY_BAIT_MESSAGES[state.lobbyBaitMessageIndex]);
+                state.lobbyBaitFirstSentTime = System.currentTimeMillis();
+            }
         }
 
         if (state.joinBurstContainsMainUser) {
@@ -629,6 +671,16 @@ public class BedwarsRuntime {
             if (state.chatDetectedStartTime == 0) {
                 state.chatDetectedStartTime = System.currentTimeMillis();
             }
+        }
+    }
+
+    private void checkLobbyBaitResponse(Minecraft mc, String message) {
+        if (!state.lobbyBaitActive || mc == null || mc.thePlayer == null) {
+            return;
+        }
+        Matcher matcher = CHAT_MESSAGE_PATTERN.matcher(message);
+        if (matcher.matches() && !matcher.group(1).equals(mc.thePlayer.getName())) {
+            state.lobbyBaitActive = false;
         }
     }
 

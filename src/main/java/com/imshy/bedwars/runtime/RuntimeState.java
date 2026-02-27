@@ -61,4 +61,10 @@ final class RuntimeState {
 
     final List<ChatDetectedPlayer> chatDetectedPlayers = new ArrayList<ChatDetectedPlayer>();
     long chatDetectedStartTime = 0;
+
+    // Lobby bait message state
+    boolean lobbyBaitActive = false;
+    long lobbyBaitFirstSentTime = 0;
+    boolean lobbyBaitRetrySent = false;
+    int lobbyBaitMessageIndex = -1;
 }
