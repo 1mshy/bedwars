@@ -47,7 +47,7 @@ public class BedwarsCommand extends CommandBase {
             sendMessage(sender, "/bw lookup <player> - Look up a player's stats");
             sendMessage(sender, "/bw all - Check stats for everyone in the lobby");
             sendMessage(sender, "/bw info - Show threats and history players in lobby");
-            sendMessage(sender, "/bw autoplay <ones|twos|threes|fours|stop> - Auto-queue until safe lobby");
+            sendMessage(sender, "/bw autoplay <ones|twos|threes|fours|stop|requeue> - Auto-queue until safe lobby");
             sendMessage(sender, "/bw rejoin - Re-run game-start setup (bed tracking, generators, player scan)");
             sendMessage(sender, "/bw blacklist <add|remove|list> [player] [reason] - Manage blacklist");
             sendMessage(sender, "/bw history [player] - View encounter history");
@@ -448,11 +448,16 @@ public class BedwarsCommand extends CommandBase {
 
     private void handleAutoplayCommand(ICommandSender sender, String[] args) {
         if (args.length < 2) {
-            sendMessage(sender, EnumChatFormatting.RED + "Usage: /bw autoplay <ones|twos|threes|fours|stop>");
+            sendMessage(sender, EnumChatFormatting.RED + "Usage: /bw autoplay <ones|twos|threes|fours|stop|requeue>");
             sendMessage(sender,
                     EnumChatFormatting.GRAY + "Autoplay will auto-queue until finding a lobby without threats.");
             sendMessage(sender,
                     EnumChatFormatting.GRAY + "Current max threat level: " + ModConfig.getAutoplayMaxThreatLevel());
+            sendMessage(sender,
+                    EnumChatFormatting.GRAY + "Requeue on threats: " +
+                            (ModConfig.isAutoplayRequeueEnabled()
+                                    ? EnumChatFormatting.GREEN + "Enabled"
+                                    : EnumChatFormatting.RED + "Disabled"));
             return;
         }
 
@@ -466,6 +471,15 @@ public class BedwarsCommand extends CommandBase {
             } else {
                 sendMessage(sender, EnumChatFormatting.YELLOW + "Autoplay is not currently running.");
             }
+            return;
+        }
+
+        if (mode.equals("requeue")) {
+            boolean newValue = !ModConfig.isAutoplayRequeueEnabled();
+            ModConfig.setAutoplayRequeueEnabled(newValue);
+            sendMessage(sender, EnumChatFormatting.GOLD + "[Autoplay] " +
+                    EnumChatFormatting.YELLOW + "Requeue on threats: " +
+                    (newValue ? EnumChatFormatting.GREEN + "Enabled" : EnumChatFormatting.RED + "Disabled"));
             return;
         }
 

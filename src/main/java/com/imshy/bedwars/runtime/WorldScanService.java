@@ -28,7 +28,7 @@ import java.util.HashSet;
 public class WorldScanService {
     private static final Map<String, String> GAME_MODE_COMMANDS = new HashMap<String, String>();
     private static final String[] AUTOPLAY_MODE_SUGGESTIONS = {
-            "ones", "twos", "threes", "fours", "stop"
+            "ones", "twos", "threes", "fours", "stop", "requeue"
     };
 
     static {
@@ -233,9 +233,18 @@ public class WorldScanService {
         }
 
         if (!threatPlayers.isEmpty()) {
-            requeueAutoplay(mc,
-                    EnumChatFormatting.RED + "Threats detected: " +
-                            EnumChatFormatting.YELLOW + String.join(", ", threatPlayers));
+            String threatMessage = EnumChatFormatting.RED + "Threats detected: " +
+                    EnumChatFormatting.YELLOW + String.join(", ", threatPlayers);
+            if (ModConfig.isAutoplayRequeueEnabled()) {
+                requeueAutoplay(mc, threatMessage);
+            } else {
+                mc.thePlayer.addChatMessage(new ChatComponentText(
+                        EnumChatFormatting.GOLD + "[Autoplay] " + threatMessage));
+                mc.thePlayer.addChatMessage(new ChatComponentText(
+                        EnumChatFormatting.GOLD + "[Autoplay] " +
+                                EnumChatFormatting.GRAY + "Requeue is disabled. Staying in lobby."));
+                state.autoplayEnabled = false;
+            }
         } else {
             mc.thePlayer.addChatMessage(new ChatComponentText(
                     EnumChatFormatting.GOLD + "[Autoplay] " +

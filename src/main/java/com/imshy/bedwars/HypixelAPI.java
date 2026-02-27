@@ -17,7 +17,7 @@ import java.util.concurrent.Executors;
  */
 public class HypixelAPI {
 
-    private static final String HYPIXEL_API_URL = "https://api.hypixel.net/player";
+    private static final String HYPIXEL_API_URL = "https://api.hypixel.net/v2/player";
     private static final String MOJANG_API_URL = "https://api.minecraftservices.com/minecraft/profile/lookup/name/";
 
     // Cache configuration
@@ -56,6 +56,7 @@ public class HypixelAPI {
     // Rate limiting tracking
     private static final java.util.List<Long> requestTimestamps = new java.util.ArrayList<Long>();
     private static int rateLimitedRequests = 0;
+    private static volatile String lastFetchError = null;
 
     // Thread pool for async API calls
     private static final java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors
@@ -116,7 +117,8 @@ public class HypixelAPI {
                 System.out.println("[BedwarsStats] Fetching Hypixel stats for UUID: " + uuid);
                 String response = fetchHypixelStats(uuid);
                 if (response == null) {
-                    callback.onError("Could not fetch Hypixel stats for " + playerName);
+                    String reason = lastFetchError != null ? lastFetchError : "unknown error";
+                    callback.onError("Could not fetch Hypixel stats for " + playerName + " (" + reason + ")");
                     return;
                 }
 
@@ -168,7 +170,8 @@ public class HypixelAPI {
                     System.out.println("[BedwarsStats] Fetching stats for " + playerName + " (UUID: " + uuid + ")");
                     String response = fetchHypixelStats(uuid);
                     if (response == null) {
-                        callback.onError("Could not fetch Hypixel stats for " + playerName);
+                        String reason = lastFetchError != null ? lastFetchError : "unknown error";
+                        callback.onError("Could not fetch Hypixel stats for " + playerName + " (" + reason + ")");
                         return;
                     }
 
@@ -270,17 +273,18 @@ public class HypixelAPI {
      * Fetch player stats from Hypixel API
      */
     private static String fetchHypixelStats(String uuid) {
-        // Check rate limit
         if (!checkRateLimit()) {
             System.out.println("[BedwarsStats] Rate limited! Please wait before making more requests.");
+            lastFetchError = "rate limited (local throttle)";
             return null;
         }
 
         try {
-            String urlString = HYPIXEL_API_URL + "?key=" + API_KEY + "&uuid=" + uuid;
+            String urlString = HYPIXEL_API_URL + "?uuid=" + uuid;
             URL url = new URL(urlString);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
+            conn.setRequestProperty("API-Key", API_KEY);
             conn.setConnectTimeout(5000);
             conn.setReadTimeout(5000);
 
@@ -288,12 +292,21 @@ public class HypixelAPI {
             if (responseCode == 429) {
                 System.out.println("[BedwarsStats] Hypixel API rate limit reached (429)");
                 rateLimitedRequests++;
+                lastFetchError = "rate limited by Hypixel (429)";
+                return null;
+            }
+            if (responseCode == 403) {
+                System.out.println("[BedwarsStats] Hypixel API returned 403 - invalid API key");
+                lastFetchError = "invalid API key (403)";
                 return null;
             }
             if (responseCode != 200) {
                 System.out.println("[BedwarsStats] Hypixel API returned: " + responseCode);
+                lastFetchError = "HTTP " + responseCode;
                 return null;
             }
+
+            lastFetchError = null;
 
             BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
             StringBuilder response = new StringBuilder();
@@ -307,6 +320,7 @@ public class HypixelAPI {
 
         } catch (Exception e) {
             System.out.println("[BedwarsStats] Error fetching Hypixel stats: " + e.getMessage());
+            lastFetchError = e.getMessage();
             return null;
         }
     }

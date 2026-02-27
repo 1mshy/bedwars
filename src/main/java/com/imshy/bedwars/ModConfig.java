@@ -46,6 +46,7 @@ public class ModConfig {
     private static int autoBlacklistCooldownDays = 7;
     private static int autoBlacklistExpiryDays = 30;
     private static String autoplayMaxThreatLevel = "HIGH"; // HIGH or EXTREME
+    private static boolean autoplayRequeueEnabled = false;
 
     // Invisible player detection settings
     private static boolean invisiblePlayerAlertsEnabled = true;
@@ -217,6 +218,13 @@ public class ModConfig {
             if (!autoplayMaxThreatLevel.equals("HIGH") && !autoplayMaxThreatLevel.equals("EXTREME")) {
                 autoplayMaxThreatLevel = "HIGH";
             }
+
+            Property autoplayRequeueProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "autoplayRequeueEnabled",
+                    false,
+                    "When true, autoplay will leave and requeue into a new game when threats are detected. When false, it only displays stats.");
+            autoplayRequeueEnabled = autoplayRequeueProp.getBoolean();
 
             // Invisible player detection settings
             Property invisibleAlertsProp = config.get(
@@ -525,6 +533,16 @@ public class ModConfig {
 
     public static String getAutoplayMaxThreatLevel() {
         return autoplayMaxThreatLevel;
+    }
+
+    public static boolean isAutoplayRequeueEnabled() {
+        return autoplayRequeueEnabled;
+    }
+
+    public static void setAutoplayRequeueEnabled(boolean enabled) {
+        autoplayRequeueEnabled = enabled;
+        config.get(Configuration.CATEGORY_GENERAL, "autoplayRequeueEnabled", false).set(enabled);
+        config.save();
     }
 
     // Invisible player detection getters

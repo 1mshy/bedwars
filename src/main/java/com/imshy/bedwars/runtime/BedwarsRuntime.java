@@ -354,10 +354,19 @@ public class BedwarsRuntime {
                 "fours".equals(state.autoplayMode) &&
                 state.lastPartyAutoplaySwapTick != state.clientTickCounter) {
             state.lastPartyAutoplaySwapTick = state.clientTickCounter;
-            worldScanService.requeueAutoplay(mc,
-                    EnumChatFormatting.RED + "Party burst detected: " +
-                            EnumChatFormatting.YELLOW + state.joinMessageBurstCount +
-                            EnumChatFormatting.GRAY + " joins in the same tick.");
+            String burstMessage = EnumChatFormatting.RED + "Party burst detected: " +
+                    EnumChatFormatting.YELLOW + state.joinMessageBurstCount +
+                    EnumChatFormatting.GRAY + " joins in the same tick.";
+            if (ModConfig.isAutoplayRequeueEnabled()) {
+                worldScanService.requeueAutoplay(mc, burstMessage);
+            } else {
+                mc.thePlayer.addChatMessage(new ChatComponentText(
+                        EnumChatFormatting.GOLD + "[Autoplay] " + burstMessage));
+                mc.thePlayer.addChatMessage(new ChatComponentText(
+                        EnumChatFormatting.GOLD + "[Autoplay] " +
+                                EnumChatFormatting.GRAY + "Requeue is disabled. Staying in lobby."));
+                state.autoplayEnabled = false;
+            }
         }
     }
 
@@ -416,10 +425,19 @@ public class BedwarsRuntime {
 
                     if (isThreat) {
                         Minecraft mcInner = Minecraft.getMinecraft();
-                        worldScanService.requeueAutoplay(mcInner,
-                                EnumChatFormatting.RED + "Chat threat detected: " +
-                                        EnumChatFormatting.YELLOW + chatterName +
-                                        " (" + threat.name() + ")");
+                        String threatMessage = EnumChatFormatting.RED + "Chat threat detected: " +
+                                EnumChatFormatting.YELLOW + chatterName +
+                                " (" + threat.name() + ")";
+                        if (ModConfig.isAutoplayRequeueEnabled()) {
+                            worldScanService.requeueAutoplay(mcInner, threatMessage);
+                        } else if (mcInner.thePlayer != null) {
+                            mcInner.thePlayer.addChatMessage(new ChatComponentText(
+                                    EnumChatFormatting.GOLD + "[Autoplay] " + threatMessage));
+                            mcInner.thePlayer.addChatMessage(new ChatComponentText(
+                                    EnumChatFormatting.GOLD + "[Autoplay] " +
+                                            EnumChatFormatting.GRAY + "Requeue is disabled. Staying in lobby."));
+                            state.autoplayEnabled = false;
+                        }
                     }
                 }
             }
