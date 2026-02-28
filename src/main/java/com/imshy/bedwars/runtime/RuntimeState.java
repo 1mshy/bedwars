@@ -55,6 +55,11 @@ final class RuntimeState {
     int lastPredictedRushEtaSeconds = -1;
     String lastDetectedMapName = "Unknown";
 
+    // --- Enemy tracking state ---
+    final Map<String, TrackedEnemy> trackedEnemies = new HashMap<String, TrackedEnemy>();
+    final Map<Integer, double[]> trackedResourceItems = new HashMap<Integer, double[]>(); // entityId -> [posX, posY, posZ, isDiamond(1/0), stackSize]
+    long lastArmorHeldItemScan = 0;
+
     // --- Cross-phase state ---
     boolean autoplayEnabled = false;
     String autoplayMode = "ones";

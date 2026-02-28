@@ -62,6 +62,11 @@ public class ModConfig {
     // Lobby bait messages
     private static boolean lobbyBaitMessagesEnabled = true;
 
+    // Enemy tracking settings
+    private static boolean enemyTrackingEnabled = true;
+    private static boolean enemyTrackingHudEnabled = true;
+    private static double enemyTrackingPickupRange = 3.0;
+
     // HUD overlay settings
     private static boolean hudEnabled = true;
     private static boolean hudHighestThreatEnabled = true;
@@ -449,6 +454,29 @@ public class ModConfig {
                     "Send bait messages in pre-lobby chat to provoke players into revealing their stats");
             lobbyBaitMessagesEnabled = lobbyBaitProp.getBoolean();
 
+            // Enemy tracking settings
+            Property enemyTrackingProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "enemyTrackingEnabled",
+                    true,
+                    "Track enemy diamond/emerald pickups, armor protection, and hotbar items");
+            enemyTrackingEnabled = enemyTrackingProp.getBoolean();
+
+            Property enemyTrackingHudProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "enemyTrackingHudEnabled",
+                    true,
+                    "Show detailed enemy tracking info on the HUD for the nearest enemy");
+            enemyTrackingHudEnabled = enemyTrackingHudProp.getBoolean();
+
+            Property enemyTrackingPickupRangeProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "enemyTrackingPickupRange",
+                    3.0,
+                    "Max distance (blocks) to attribute a resource pickup to an enemy player",
+                    1.0, 8.0);
+            enemyTrackingPickupRange = enemyTrackingPickupRangeProp.getDouble();
+
             Property hudPositionProp = config.get(
                     Configuration.CATEGORY_GENERAL,
                     "hudPosition",
@@ -709,5 +737,17 @@ public class ModConfig {
 
     public static boolean isLobbyBaitMessagesEnabled() {
         return lobbyBaitMessagesEnabled;
+    }
+
+    public static boolean isEnemyTrackingEnabled() {
+        return enemyTrackingEnabled;
+    }
+
+    public static boolean isEnemyTrackingHudEnabled() {
+        return enemyTrackingHudEnabled;
+    }
+
+    public static double getEnemyTrackingPickupRange() {
+        return enemyTrackingPickupRange;
     }
 }

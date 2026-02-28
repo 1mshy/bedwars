@@ -4,8 +4,10 @@ import com.imshy.bedwars.BedwarsStats;
 import com.imshy.bedwars.HypixelAPI;
 import com.imshy.bedwars.ModConfig;
 import com.imshy.bedwars.runtime.ChatDetectedPlayer;
+import com.imshy.bedwars.runtime.EnemyTrackingService;
 import com.imshy.bedwars.runtime.TeamDangerAnalyzer;
 import com.imshy.bedwars.runtime.TeamDangerAnalyzer.TeamDangerEntry;
+import com.imshy.bedwars.runtime.TrackedEnemy;
 import com.imshy.bedwars.runtime.WorldScanService;
 import com.imshy.bedwars.runtime.WorldScanService.GeneratorSummary;
 
@@ -16,6 +18,7 @@ import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.ItemStack;
 import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.ResourceLocation;
 
@@ -36,6 +39,7 @@ public class BedwarsHudRenderer {
 
     public void render(ScaledResolution resolution, Minecraft mc,
                        TeamDangerAnalyzer teamDangerAnalyzer, WorldScanService worldScanService,
+                       EnemyTrackingService enemyTrackingService,
                        long matchStartTime, List<ChatDetectedPlayer> chatDetectedPlayers) {
         if (!ModConfig.isHudEnabled()) {
             return;
@@ -45,7 +49,8 @@ public class BedwarsHudRenderer {
         double scale = ModConfig.getHudScale();
 
         List<HudLine> lines = new ArrayList<HudLine>();
-        buildHudContent(lines, mc, fr, teamDangerAnalyzer, worldScanService, matchStartTime, chatDetectedPlayers);
+        buildHudContent(lines, mc, fr, teamDangerAnalyzer, worldScanService, enemyTrackingService,
+                matchStartTime, chatDetectedPlayers);
 
         if (lines.isEmpty()) {
             return;
@@ -109,6 +114,7 @@ public class BedwarsHudRenderer {
 
     private void buildHudContent(List<HudLine> lines, Minecraft mc, FontRenderer fr,
                                   TeamDangerAnalyzer teamDangerAnalyzer, WorldScanService worldScanService,
+                                  EnemyTrackingService enemyTrackingService,
                                   long matchStartTime, List<ChatDetectedPlayer> chatDetectedPlayers) {
         boolean addedSection = false;
 
@@ -136,7 +142,15 @@ public class BedwarsHudRenderer {
             if (addedSection) {
                 lines.add(HudLine.gap());
             }
-            addChatDetectedSection(lines, mc, chatDetectedPlayers);
+            boolean added = addChatDetectedSection(lines, mc, chatDetectedPlayers);
+            addedSection = addedSection || added;
+        }
+
+        if (ModConfig.isEnemyTrackingEnabled() && ModConfig.isEnemyTrackingHudEnabled()) {
+            if (addedSection) {
+                lines.add(HudLine.gap());
+            }
+            addEnemyTrackingSection(lines, mc, enemyTrackingService);
         }
     }
 
@@ -392,5 +406,116 @@ public class BedwarsHudRenderer {
         static HudLine gap() {
             return new HudLine("", true, null);
         }
+    }
+
+    private boolean addEnemyTrackingSection(List<HudLine> lines, Minecraft mc,
+                                             EnemyTrackingService enemyTrackingService) {
+        if (mc.theWorld == null || mc.thePlayer == null) {
+            return false;
+        }
+
+        // Find the nearest enemy with tracking data
+        EntityPlayer nearest = null;
+        TrackedEnemy nearestData = null;
+        double nearestDistSq = Double.MAX_VALUE;
+
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            if (player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+                continue;
+            }
+            if (player.isOnSameTeam(mc.thePlayer)) {
+                continue;
+            }
+
+            TrackedEnemy data = enemyTrackingService.getTrackedEnemy(player.getName());
+            if (data == null || !data.hasAnyData()) {
+                continue;
+            }
+
+            double distSq = mc.thePlayer.getDistanceSqToEntity(player);
+            if (distSq < nearestDistSq) {
+                nearestDistSq = distSq;
+                nearest = player;
+                nearestData = data;
+            }
+        }
+
+        if (nearest == null || nearestData == null) {
+            return false;
+        }
+
+        ResourceLocation skin = null;
+        if (nearest instanceof AbstractClientPlayer) {
+            skin = ((AbstractClientPlayer) nearest).getLocationSkin();
+        }
+
+        lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "ENEMY INTEL"));
+        lines.add(HudLine.playerLine(EnumChatFormatting.WHITE + nearest.getName()
+                + EnumChatFormatting.GRAY + " (" + (int) Math.sqrt(nearestDistSq) + "m)", skin));
+
+        // Resources
+        if (nearestData.diamondCount > 0 || nearestData.emeraldCount > 0) {
+            StringBuilder res = new StringBuilder();
+            if (nearestData.diamondCount > 0) {
+                res.append(EnumChatFormatting.AQUA).append("\u25C6 ").append(nearestData.diamondCount);
+            }
+            if (nearestData.emeraldCount > 0) {
+                if (res.length() > 0) res.append("  ");
+                res.append(EnumChatFormatting.GREEN).append("\u25C6 ").append(nearestData.emeraldCount);
+            }
+            lines.add(HudLine.text(res.toString()));
+        }
+
+        // Armor
+        if (nearestData.armorProtectionLevel > 0) {
+            lines.add(HudLine.text(EnumChatFormatting.YELLOW + "Armor: Prot " + toRoman(nearestData.armorProtectionLevel)));
+        }
+
+        // Hotbar items
+        if (!nearestData.observedHotbarItems.isEmpty()) {
+            StringBuilder hotbar = new StringBuilder();
+            hotbar.append(EnumChatFormatting.GRAY).append("Hotbar: ").append(EnumChatFormatting.WHITE);
+            int shown = 0;
+            for (ItemStack stack : nearestData.observedHotbarItems) {
+                if (shown >= 6) break;
+                if (shown > 0) hotbar.append(EnumChatFormatting.GRAY).append(", ").append(EnumChatFormatting.WHITE);
+                hotbar.append(getShortItemName(stack));
+                shown++;
+            }
+            lines.add(HudLine.text(hotbar.toString()));
+        }
+
+        return true;
+    }
+
+    private static String toRoman(int level) {
+        switch (level) {
+            case 1: return "I";
+            case 2: return "II";
+            case 3: return "III";
+            case 4: return "IV";
+            default: return String.valueOf(level);
+        }
+    }
+
+    private static String getShortItemName(ItemStack stack) {
+        if (stack == null || stack.getItem() == null) return "?";
+        String name = stack.getDisplayName();
+        if (name.contains("Sword")) return "Sword";
+        if (name.contains("Bow")) return "Bow";
+        if (name.contains("Pickaxe")) return "Pick";
+        if (name.contains("Axe")) return "Axe";
+        if (name.contains("Pearl")) return "Pearl";
+        if (name.contains("Fireball")) return "Fireball";
+        if (name.contains("TNT")) return "TNT";
+        if (name.contains("Wool") || name.contains("Terracotta") || name.contains("Clay")
+                || name.contains("Sandstone") || name.contains("End Stone")
+                || name.contains("Obsidian") || name.contains("Planks")) return "Blocks";
+        if (name.contains("Potion") || name.contains("Water")) return "Potion";
+        if (name.contains("Golden Apple")) return "Gapple";
+        if (name.contains("Shears")) return "Shears";
+        if (name.contains("Crossbow")) return "Crossbow";
+        if (name.length() > 10) return name.substring(0, 10);
+        return name;
     }
 }

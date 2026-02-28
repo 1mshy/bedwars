@@ -36,6 +36,8 @@ public class BedwarsRuntime {
     private static final Pattern PARTY_LINE_PATTERN = Pattern.compile("^Party (?:Leader|Members|Moderators): (.+)$");
     private static final Pattern PARTY_MEMBER_NAME_PATTERN = Pattern
             .compile("(?:\\[[A-Za-z0-9+]+\\] )?([A-Za-z0-9_]{1,16})");
+    private static final Pattern DEATH_MESSAGE_PATTERN = Pattern
+            .compile("^([A-Za-z0-9_]{1,16}) (?:was |died|fell |disconnected|burned |walked |suffocated|drowned)");
     private static final long PARTY_LIST_TIMEOUT_MS = 3000;
     private static final long LOBBY_BAIT_RETRY_DELAY_MS = 4000;
     private static final String[] LOBBY_BAIT_MESSAGES = {
@@ -55,6 +57,7 @@ public class BedwarsRuntime {
     private final MatchThreatService matchThreatService;
     private final LobbyTrackerService lobbyTrackerService;
     private final WorldScanService worldScanService;
+    private final EnemyTrackingService enemyTrackingService;
     private final BedwarsOverlayRenderer overlayRenderer;
     private final BedwarsHudRenderer hudRenderer;
 
@@ -64,6 +67,7 @@ public class BedwarsRuntime {
         this.matchThreatService = new MatchThreatService(state, teamDangerAnalyzer);
         this.lobbyTrackerService = new LobbyTrackerService(state, matchThreatService);
         this.worldScanService = new WorldScanService(state, matchThreatService);
+        this.enemyTrackingService = new EnemyTrackingService(state, matchThreatService);
         this.overlayRenderer = new BedwarsOverlayRenderer();
         this.hudRenderer = new BedwarsHudRenderer();
     }
@@ -210,6 +214,7 @@ public class BedwarsRuntime {
                 state.lobbyBaitActive = false;
                 matchThreatService.clearBedTrackingState();
                 lobbyTrackerService.clearRecentJoins();
+                enemyTrackingService.clearAll();
                 return;
             }
 
@@ -238,7 +243,17 @@ public class BedwarsRuntime {
                 state.lobbyBaitActive = false;
                 matchThreatService.clearBedTrackingState();
                 lobbyTrackerService.clearRecentJoins();
+                enemyTrackingService.clearAll();
                 return;
+            }
+
+            // Detect player death messages for enemy tracking
+            if (ModConfig.isEnemyTrackingEnabled()) {
+                Matcher deathMatcher = DEATH_MESSAGE_PATTERN.matcher(message);
+                if (deathMatcher.find()) {
+                    String deadPlayer = deathMatcher.group(1);
+                    enemyTrackingService.handleDeathMessage(deadPlayer);
+                }
             }
         }
 
@@ -263,6 +278,7 @@ public class BedwarsRuntime {
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.UNKNOWN);
                 PlayerDatabase.getInstance().clearCurrentGame();
                 lobbyTrackerService.clearRecentJoins();
+                enemyTrackingService.clearAll();
                 System.out.println("[BedwarsStats] Left Bedwars game - unknown outcome.");
             }
             state.gamePhase = GamePhase.IDLE;
@@ -336,8 +352,8 @@ public class BedwarsRuntime {
             }
             if (state.gamePhase == GamePhase.IN_GAME || hasDetectedPlayers) {
                 ScaledResolution resolution = new ScaledResolution(mc);
-                hudRenderer.render(resolution, mc, teamDangerAnalyzer, worldScanService, state.matchStartTime,
-                        state.chatDetectedPlayers);
+                hudRenderer.render(resolution, mc, teamDangerAnalyzer, worldScanService, enemyTrackingService,
+                        state.matchStartTime, state.chatDetectedPlayers);
             }
         }
     }
@@ -432,6 +448,12 @@ public class BedwarsRuntime {
         }
 
         matchThreatService.checkBedProximityWarnings(mc, currentTime);
+
+        // Enemy tracking: scan for item pickups and armor/held items
+        if (ModConfig.isEnemyTrackingEnabled()) {
+            enemyTrackingService.scanItemPickups(mc);
+            enemyTrackingService.scanArmorAndHeldItems(mc, currentTime);
+        }
     }
 
     @SubscribeEvent
@@ -462,6 +484,14 @@ public class BedwarsRuntime {
                 EnumChatFormatting.YELLOW + String.format("%.1f", stats.getFkdr()) + " FKDR";
 
         overlayRenderer.renderThreatLabel(player, threatText, event.x, event.y, event.z);
+
+        // Render enemy tracking label below the threat label
+        if (state.gamePhase == GamePhase.IN_GAME && ModConfig.isEnemyTrackingEnabled()) {
+            TrackedEnemy tracked = enemyTrackingService.getTrackedEnemy(player.getName());
+            if (tracked != null && tracked.hasAnyData()) {
+                overlayRenderer.renderEnemyTrackingLabel(player, tracked, event.x, event.y, event.z);
+            }
+        }
     }
 
     @SubscribeEvent
