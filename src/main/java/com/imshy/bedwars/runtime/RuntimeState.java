@@ -14,6 +14,7 @@ final class RuntimeState {
     static final long AUTOPLAY_CHECK_DELAY = 5000;
     static final long GENERATOR_SCAN_INTERVAL = 1000;
     static final long SPAM_RETRY_DELAY = 7000;
+    static final long INITIAL_STAT_DISPLAY_MS = 15000;
 
     // --- Phase tracking ---
     GamePhase gamePhase = GamePhase.IDLE;

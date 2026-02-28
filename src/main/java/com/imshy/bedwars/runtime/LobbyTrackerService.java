@@ -175,13 +175,16 @@ public class LobbyTrackerService {
                             threat == BedwarsStats.ThreatLevel.HIGH ||
                             threat == BedwarsStats.ThreatLevel.EXTREME) {
 
-                        Minecraft mc = Minecraft.getMinecraft();
-                        if (mc.thePlayer != null) {
-                            String threatColor = stats.getThreatColor();
-                            mc.thePlayer.addChatMessage(new ChatComponentText(
-                                    EnumChatFormatting.GREEN + "[BW] " +
-                                            threatColor + playerName + " " +
-                                            stats.getDisplayString()));
+                        boolean withinStartWindow = System.currentTimeMillis() - state.matchStartTime < RuntimeState.INITIAL_STAT_DISPLAY_MS;
+                        if (withinStartWindow) {
+                            Minecraft mc = Minecraft.getMinecraft();
+                            if (mc.thePlayer != null) {
+                                String threatColor = stats.getThreatColor();
+                                mc.thePlayer.addChatMessage(new ChatComponentText(
+                                        EnumChatFormatting.GREEN + "[BW] " +
+                                                threatColor + playerName + " " +
+                                                stats.getDisplayString()));
+                            }
                         }
                     }
                 }
