@@ -500,10 +500,10 @@ public class BedwarsRuntime {
         if (state.autoplayEnabled && state.gamePhase != GamePhase.IN_GAME) {
             int currentPlayers = Integer.parseInt(lobbyJoinMatcher.group(1));
             int maxPlayers = ModConfig.getLobbyMaxPlayerCount();
-            if (currentPlayers >= maxPlayers) {
+            if (currentPlayers > maxPlayers) {
                 String reason = EnumChatFormatting.RED + "Lobby player count (" +
                         EnumChatFormatting.YELLOW + "" + currentPlayers +
-                        EnumChatFormatting.RED + ") reached max (" +
+                        EnumChatFormatting.RED + ") exceeded max (" +
                         EnumChatFormatting.YELLOW + "" + maxPlayers +
                         EnumChatFormatting.RED + ")";
                 worldScanService.requeueAutoplay(mc, reason);
