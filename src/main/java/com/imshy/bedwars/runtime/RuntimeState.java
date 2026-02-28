@@ -13,6 +13,7 @@ final class RuntimeState {
     static final long DISPLAY_DURATION = 10000;
     static final long AUTOPLAY_CHECK_DELAY = 5000;
     static final long GENERATOR_SCAN_INTERVAL = 1000;
+    static final long SPAM_RETRY_DELAY = 7000;
 
     // --- Phase tracking ---
     GamePhase gamePhase = GamePhase.IDLE;
@@ -58,6 +59,9 @@ final class RuntimeState {
     String autoplayMode = "ones";
     long autoplayCheckTime = 0;
     boolean autoplayPendingCheck = false;
+    boolean autoplaySpamBlocked = false;
+    long autoplaySpamBlockedTime = 0;
+    long lastRequeueTime = 0;
     final Set<String> partyMemberNames = new HashSet<String>();
     boolean partyListPending = false;
     long partyListRequestTime = 0;

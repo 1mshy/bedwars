@@ -109,6 +109,15 @@ public class WorldScanService {
             return;
         }
 
+        long now = System.currentTimeMillis();
+        if (now - state.lastRequeueTime < RuntimeState.SPAM_RETRY_DELAY) {
+            mc.thePlayer.addChatMessage(new ChatComponentText(
+                    EnumChatFormatting.GOLD + "[Autoplay] " +
+                            EnumChatFormatting.GRAY + "Waiting for cooldown..."));
+            return;
+        }
+        state.lastRequeueTime = now;
+
         if (reasonMessage != null && !reasonMessage.isEmpty()) {
             mc.thePlayer.addChatMessage(new ChatComponentText(
                     EnumChatFormatting.GOLD + "[Autoplay] " + reasonMessage));

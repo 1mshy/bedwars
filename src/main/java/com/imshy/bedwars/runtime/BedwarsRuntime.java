@@ -242,6 +242,15 @@ public class BedwarsRuntime {
             }
         }
 
+        if (state.autoplayEnabled && message.contains("Please don't spam the command!")) {
+            state.autoplaySpamBlocked = true;
+            state.autoplaySpamBlockedTime = System.currentTimeMillis();
+            mc.thePlayer.addChatMessage(new ChatComponentText(
+                    EnumChatFormatting.GOLD + "[Autoplay] " +
+                            EnumChatFormatting.RED + "Rate limited " +
+                            EnumChatFormatting.GRAY + "\u2014 retrying in 7s..."));
+        }
+
         if (message.contains("You left.") || message.contains("Sending you to")) {
             synchronized (state.chatDetectedPlayers) {
                 state.chatDetectedPlayers.clear();
@@ -347,6 +356,20 @@ public class BedwarsRuntime {
             if (System.currentTimeMillis() >= state.autoplayCheckTime) {
                 state.autoplayPendingCheck = false;
                 worldScanService.performAutoplayCheck(mc);
+            }
+        }
+
+        // Autoplay spam retry: re-send /play command after Hypixel rate limit expires
+        if (state.autoplayEnabled && state.autoplaySpamBlocked && mc.thePlayer != null) {
+            if (System.currentTimeMillis() - state.autoplaySpamBlockedTime >= RuntimeState.SPAM_RETRY_DELAY) {
+                state.autoplaySpamBlocked = false;
+                String playCommand = worldScanService.getPlayCommand(state.autoplayMode);
+                if (playCommand != null) {
+                    mc.thePlayer.sendChatMessage(playCommand);
+                    mc.thePlayer.addChatMessage(new ChatComponentText(
+                            EnumChatFormatting.GOLD + "[Autoplay] " +
+                                    EnumChatFormatting.GREEN + "Retrying queue..."));
+                }
             }
         }
 
