@@ -19,6 +19,8 @@ import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
+import net.minecraft.scoreboard.ScorePlayerTeam;
+import net.minecraft.scoreboard.Team;
 import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.ResourceLocation;
 
@@ -282,7 +284,7 @@ public class BedwarsHudRenderer {
             }
 
             int distance = (int) mc.thePlayer.getDistanceToEntity(player);
-            threats.add(new ThreatPlayerEntry(player.getName(), threat, distance, skin));
+            threats.add(new ThreatPlayerEntry(player.getName(), threat, distance, skin, getPlayerTeamColor(player)));
         }
 
         if (threats.isEmpty()) {
@@ -303,7 +305,7 @@ public class BedwarsHudRenderer {
                     ? EnumChatFormatting.DARK_RED.toString()
                     : EnumChatFormatting.RED.toString();
 
-            String line = EnumChatFormatting.WHITE + entry.name
+            String line = entry.teamColor + entry.name
                     + EnumChatFormatting.GRAY + " - "
                     + threatColor + entry.threat.name()
                     + EnumChatFormatting.GRAY + "  " + entry.distance + "m";
@@ -350,17 +352,19 @@ public class BedwarsHudRenderer {
                 String threatColor = stats.getThreatColor();
 
                 ResourceLocation skin = null;
+                String teamColor = EnumChatFormatting.WHITE.toString();
                 if (mc.theWorld != null) {
                     for (EntityPlayer player : mc.theWorld.playerEntities) {
                         if (player.getName().equals(cdp.name) && player instanceof AbstractClientPlayer) {
                             skin = ((AbstractClientPlayer) player).getLocationSkin();
+                            teamColor = getPlayerTeamColor(player);
                             break;
                         }
                     }
                 }
 
                 String line = threatColor + "[" + threat.name() + "] " +
-                        EnumChatFormatting.WHITE + cdp.name + " " +
+                        teamColor + cdp.name + " " +
                         EnumChatFormatting.GRAY + stats.getStars() + "\u2B50 " +
                         EnumChatFormatting.YELLOW + String.format("%.1f", stats.getFkdr()) + " FKDR";
 
@@ -375,12 +379,14 @@ public class BedwarsHudRenderer {
         final BedwarsStats.ThreatLevel threat;
         final int distance;
         final ResourceLocation skin;
+        final String teamColor;
 
-        ThreatPlayerEntry(String name, BedwarsStats.ThreatLevel threat, int distance, ResourceLocation skin) {
+        ThreatPlayerEntry(String name, BedwarsStats.ThreatLevel threat, int distance, ResourceLocation skin, String teamColor) {
             this.name = name;
             this.threat = threat;
             this.distance = distance;
             this.skin = skin;
+            this.teamColor = teamColor;
         }
     }
 
@@ -450,7 +456,8 @@ public class BedwarsHudRenderer {
         }
 
         lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "ENEMY INTEL"));
-        lines.add(HudLine.playerLine(EnumChatFormatting.WHITE + nearest.getName()
+        String nameColor = getPlayerTeamColor(nearest);
+        lines.add(HudLine.playerLine(nameColor + nearest.getName()
                 + EnumChatFormatting.GRAY + " (" + (int) Math.sqrt(nearestDistSq) + "m)", skin));
 
         // Resources
@@ -496,6 +503,27 @@ public class BedwarsHudRenderer {
             case 4: return "IV";
             default: return String.valueOf(level);
         }
+    }
+
+    private static String getPlayerTeamColor(EntityPlayer player) {
+        Team team = player.getTeam();
+        if (!(team instanceof ScorePlayerTeam)) {
+            return EnumChatFormatting.WHITE.toString();
+        }
+        String prefix = ((ScorePlayerTeam) team).getColorPrefix();
+        if (prefix == null || prefix.isEmpty()) {
+            return EnumChatFormatting.WHITE.toString();
+        }
+        // Extract just the first color code from the prefix (e.g. "§c[RED] " -> "§c")
+        for (int i = 0; i < prefix.length() - 1; i++) {
+            if (prefix.charAt(i) == '\u00a7') {
+                char code = prefix.charAt(i + 1);
+                if ((code >= '0' && code <= '9') || (code >= 'a' && code <= 'f')) {
+                    return "\u00a7" + code;
+                }
+            }
+        }
+        return EnumChatFormatting.WHITE.toString();
     }
 
     private static String getShortItemName(ItemStack stack) {
