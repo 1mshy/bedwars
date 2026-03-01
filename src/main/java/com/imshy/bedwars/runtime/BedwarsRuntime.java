@@ -526,21 +526,6 @@ public class BedwarsRuntime {
             return;
         }
 
-        // Check if lobby player count exceeds the configured max (pregame only)
-        if (state.autoplayEnabled && state.gamePhase != GamePhase.IN_GAME) {
-            int currentPlayers = Integer.parseInt(lobbyJoinMatcher.group(1));
-            int maxPlayers = ModConfig.getLobbyMaxPlayerCount();
-            if (currentPlayers > maxPlayers) {
-                String reason = EnumChatFormatting.RED + "Lobby player count (" +
-                        EnumChatFormatting.YELLOW + "" + currentPlayers +
-                        EnumChatFormatting.RED + ") exceeded max (" +
-                        EnumChatFormatting.YELLOW + "" + maxPlayers +
-                        EnumChatFormatting.RED + ")";
-                worldScanService.requeueAutoplay(mc, reason);
-                return;
-            }
-        }
-
         if (state.joinBurstTickStamp != state.clientTickCounter) {
             state.joinBurstTickStamp = state.clientTickCounter;
             state.joinMessageBurstCount = 0;
@@ -552,6 +537,20 @@ public class BedwarsRuntime {
         state.joinBurstNames.add(joinerName);
         if (joinerName.equals(mc.thePlayer.getName())) {
             state.joinBurstContainsMainUser = true;
+            // Only requeue if the lobby was already over max when WE joined
+            if (state.autoplayEnabled) {
+                int currentPlayers = Integer.parseInt(lobbyJoinMatcher.group(1));
+                int maxPlayers = ModConfig.getLobbyMaxPlayerCount();
+                if (currentPlayers > maxPlayers) {
+                    String reason = EnumChatFormatting.RED + "Lobby player count (" +
+                            EnumChatFormatting.YELLOW + "" + currentPlayers +
+                            EnumChatFormatting.RED + ") exceeded max (" +
+                            EnumChatFormatting.YELLOW + "" + maxPlayers +
+                            EnumChatFormatting.RED + ")";
+                    worldScanService.requeueAutoplay(mc, reason);
+                    return;
+                }
+            }
             // Transition to PRE_GAME when local player joins a bedwars pre-lobby
             if (state.gamePhase == GamePhase.IDLE) {
                 state.gamePhase = GamePhase.PRE_GAME;
