@@ -27,7 +27,7 @@ public class BedwarsOverlayRenderer {
             return;
         }
 
-        float heightOffset = player.height + 0.5F + 0.3F;
+        float heightOffset = NameTagManager.getInstance().computeHeightOffset(player, NameTagManager.NameTagLayer.THREAT_LEVEL);
 
         GlStateManager.pushMatrix();
         GlStateManager.translate((float) x, (float) y + heightOffset, (float) z);
@@ -153,7 +153,7 @@ public class BedwarsOverlayRenderer {
         double targetZ = player.lastTickPosZ + (player.posZ - player.lastTickPosZ) * partialTicks;
 
         double x = targetX - playerX;
-        double y = targetY - playerY + player.height + 0.5;
+        double y = targetY - playerY + NameTagManager.getInstance().computeHeightOffset(player, NameTagManager.NameTagLayer.INVISIBLE);
         double z = targetZ - playerZ;
 
         double distSq = x * x + y * y + z * z;
@@ -250,8 +250,8 @@ public class BedwarsOverlayRenderer {
             return;
         }
 
-        // Position below the threat label
-        float heightOffset = player.height + 0.5F;
+        // Position above the threat label
+        float heightOffset = NameTagManager.getInstance().computeHeightOffset(player, NameTagManager.NameTagLayer.HOTBAR_INTEL);
 
         GlStateManager.pushMatrix();
         GlStateManager.translate((float) x, (float) y + heightOffset, (float) z);
