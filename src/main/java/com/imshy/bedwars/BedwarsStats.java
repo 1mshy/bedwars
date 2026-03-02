@@ -56,24 +56,37 @@ public class BedwarsStats {
                 return;
             }
 
+            // Scope all stat extraction to the Bedwars section of the response.
+            // The full API response contains stats for every game, quests, and
+            // achievements, so keys like "final_deaths_bedwars" can appear outside
+            // the Bedwars object (e.g. in quest descriptors) with wrong values.
+            String bedwarsJson = extractJsonSection(jsonResponse, "Bedwars");
+            if (bedwarsJson == null) {
+                // Bedwars key present but section could not be extracted
+                loaded = true;
+                return;
+            }
+
             // Extract Experience to calculate stars
-            int exp = extractInt(jsonResponse, "Experience");
+            int exp = extractInt(bedwarsJson, "Experience");
             stars = calculateStars(exp);
 
             // Extract kill/death stats
-            finalKills = extractInt(jsonResponse, "final_kills_bedwars");
-            finalDeaths = extractInt(jsonResponse, "final_deaths_bedwars");
+            finalKills = extractInt(bedwarsJson, "final_kills_bedwars");
+            finalDeaths = extractInt(bedwarsJson, "final_deaths_bedwars");
 
             // Extract win/loss stats
-            wins = extractInt(jsonResponse, "wins_bedwars");
-            losses = extractInt(jsonResponse, "losses_bedwars");
+            wins = extractInt(bedwarsJson, "wins_bedwars");
+            losses = extractInt(bedwarsJson, "losses_bedwars");
 
             // Extract beds broken
-            bedsBroken = extractInt(jsonResponse, "beds_broken_bedwars");
+            bedsBroken = extractInt(bedwarsJson, "beds_broken_bedwars");
 
-            // Calculate ratios
-            fkdr = finalDeaths > 0 ? (double) finalKills / finalDeaths : finalKills;
-            wlr = losses > 0 ? (double) wins / losses : wins;
+            // Calculate ratios. Fall back to 0.0 (not raw counts) when denominator
+            // is zero — a genuine 0-death player is far too rare to justify showing
+            // their kill count as FKDR.
+            fkdr = finalDeaths > 0 ? (double) finalKills / finalDeaths : 0.0;
+            wlr = losses > 0 ? (double) wins / losses : 0.0;
 
             loaded = true;
 
@@ -120,6 +133,39 @@ public class BedwarsStats {
         }
 
         return level;
+    }
+
+    /**
+     * Extract a top-level JSON object section by key name.
+     * Walks the string to find "key":{ ... } using brace counting, returning the
+     * inner content (excluding the outer braces) so that extractInt searches are
+     * properly scoped to that section.
+     */
+    private String extractJsonSection(String json, String sectionKey) {
+        String searchKey = "\"" + sectionKey + "\":";
+        int keyIndex = json.indexOf(searchKey);
+        if (keyIndex == -1)
+            return null;
+
+        int braceStart = json.indexOf('{', keyIndex + searchKey.length());
+        if (braceStart == -1)
+            return null;
+
+        int depth = 1;
+        int i = braceStart + 1;
+        while (i < json.length() && depth > 0) {
+            char c = json.charAt(i);
+            if (c == '{')
+                depth++;
+            else if (c == '}')
+                depth--;
+            i++;
+        }
+
+        if (depth != 0)
+            return null;
+
+        return json.substring(braceStart, i); // includes outer { }
     }
 
     /**
