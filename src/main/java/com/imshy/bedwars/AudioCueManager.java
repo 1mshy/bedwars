@@ -12,8 +12,7 @@ public class AudioCueManager {
 
     public enum CueType {
         INVISIBLE_NEARBY,
-        BED_DANGER,
-        EXTREME_PLAYER_JOIN
+        BED_DANGER
     }
 
     private static final Map<CueType, Long> lastCueTime = new HashMap<CueType, Long>();
@@ -69,8 +68,6 @@ public class AudioCueManager {
                 return ModConfig.isInvisibleAudioCueEnabled();
             case BED_DANGER:
                 return ModConfig.isBedDangerAudioCueEnabled();
-            case EXTREME_PLAYER_JOIN:
-                return ModConfig.isExtremeJoinAudioCueEnabled();
             default:
                 return false;
         }
@@ -82,8 +79,6 @@ public class AudioCueManager {
                 return new SoundProfile("note.pling", 1.8F);
             case BED_DANGER:
                 return new SoundProfile("note.bass", 0.8F);
-            case EXTREME_PLAYER_JOIN:
-                return new SoundProfile("random.orb", 1.0F);
             default:
                 return new SoundProfile("random.click", 1.0F);
         }

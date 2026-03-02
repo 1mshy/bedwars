@@ -35,7 +35,6 @@ public class ModConfig {
     private static boolean audioAlertsEnabled = true;
     private static boolean invisibleAudioCueEnabled = true;
     private static boolean bedDangerAudioCueEnabled = true;
-    private static boolean extremeJoinAudioCueEnabled = true;
     private static double audioCueVolume = 0.8;
     private static int audioCueCooldownMs = 1500;
     private static boolean rushPredictorEnabled = true;
@@ -299,13 +298,6 @@ public class ModConfig {
                     true,
                     "Play a sound when bed danger warning triggers");
             bedDangerAudioCueEnabled = bedAudioCueProp.getBoolean();
-
-            Property extremeJoinCueProp = config.get(
-                    Configuration.CATEGORY_GENERAL,
-                    "extremeJoinAudioCueEnabled",
-                    true,
-                    "Play a sound when an EXTREME threat player is identified joining");
-            extremeJoinAudioCueEnabled = extremeJoinCueProp.getBoolean();
 
             Property audioCueVolumeProp = config.get(
                     Configuration.CATEGORY_GENERAL,
@@ -615,10 +607,6 @@ public class ModConfig {
 
     public static boolean isBedDangerAudioCueEnabled() {
         return bedDangerAudioCueEnabled;
-    }
-
-    public static boolean isExtremeJoinAudioCueEnabled() {
-        return extremeJoinAudioCueEnabled;
     }
 
     public static double getAudioCueVolume() {

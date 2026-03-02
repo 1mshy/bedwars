@@ -171,9 +171,6 @@ public class LobbyTrackerService {
                     entry.stats = stats;
 
                     BedwarsStats.ThreatLevel threat = stats.getThreatLevel();
-                    if (threat == BedwarsStats.ThreatLevel.EXTREME) {
-                        AudioCueManager.playCue(Minecraft.getMinecraft(), AudioCueManager.CueType.EXTREME_PLAYER_JOIN);
-                    }
 
                     if (threat == BedwarsStats.ThreatLevel.MEDIUM ||
                             threat == BedwarsStats.ThreatLevel.HIGH ||
