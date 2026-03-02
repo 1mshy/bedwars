@@ -18,6 +18,10 @@ public class AudioCueManager {
 
     private static final Map<CueType, Long> lastCueTime = new HashMap<CueType, Long>();
 
+    public static void clearCooldowns() {
+        lastCueTime.clear();
+    }
+
     /**
      * Play a configured cue if enabled and not on cooldown.
      */

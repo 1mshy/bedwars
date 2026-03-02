@@ -1,5 +1,6 @@
 package com.imshy.bedwars.runtime;
 
+import com.imshy.bedwars.AudioCueManager;
 import com.imshy.bedwars.AutoBlacklistManager;
 import com.imshy.bedwars.BedwarsStats;
 import com.imshy.bedwars.HypixelAPI;
@@ -94,6 +95,14 @@ public class BedwarsRuntime {
 
     public void clearRecentJoins() {
         lobbyTrackerService.clearRecentJoins();
+    }
+
+    public void resetToBootState() {
+        state.reset();
+        matchThreatService.clearBedTrackingState();
+        enemyTrackingService.clearAll();
+        PlayerDatabase.getInstance().clearCurrentGame();
+        AudioCueManager.clearCooldowns();
     }
 
     public boolean rerunMatchStartup(Minecraft mc) {

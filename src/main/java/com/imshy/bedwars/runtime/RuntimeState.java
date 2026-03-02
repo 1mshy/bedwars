@@ -71,4 +71,64 @@ final class RuntimeState {
     final Set<String> partyMemberNames = new HashSet<String>();
     boolean partyListPending = false;
     long partyListRequestTime = 0;
+
+    void reset() {
+        // Phase tracking
+        gamePhase = GamePhase.IDLE;
+        disconnectedFromGame = false;
+        disconnectTime = 0;
+        matchStartTime = 0;
+        clientTickCounter = 0;
+
+        // Pre-game state
+        joinBurstTickStamp = -1;
+        joinMessageBurstCount = 0;
+        joinBurstContainsMainUser = false;
+        joinBurstNames.clear();
+        lastPartyWarningTickStamp = -1;
+        lastPartyAutoplaySwapTickStamp = -1;
+        synchronized (chatDetectedPlayers) {
+            chatDetectedPlayers.clear();
+        }
+        chatDetectedStartTime = 0;
+        lobbyBaitActive = false;
+        lobbyBaitFirstSentTime = 0;
+        lobbyBaitRetrySent = false;
+        lobbyBaitMessageIndex = -1;
+
+        // In-game state
+        recentJoins.clear();
+        playerBedBlocks.clear();
+        fallbackBedPosition = null;
+        usingBedFallback = false;
+        bedDetectionPending = false;
+        bedDetectionStartTime = 0;
+        lastBedDetectionAttempt = 0;
+        lastBedWarningTime.clear();
+        inferredTeammateUuids.clear();
+        invisiblePlayerWarnings.clear();
+        trackedGenerators.clear();
+        lastGeneratorScan = 0;
+        lastRushPredictorCheck = 0;
+        rushRiskWarningSent = false;
+        lastPredictedRushEtaSeconds = -1;
+        lastDetectedMapName = "Unknown";
+
+        // Enemy tracking state
+        trackedEnemies.clear();
+        trackedResourceItems.clear();
+        lastArmorHeldItemScan = 0;
+
+        // Cross-phase state
+        autoplayEnabled = false;
+        autoplayMode = "ones";
+        autoplayCheckTime = 0;
+        autoplayPendingCheck = false;
+        autoplaySpamBlocked = false;
+        autoplaySpamBlockedTime = 0;
+        lastRequeueTime = 0;
+        partyMemberNames.clear();
+        partyListPending = false;
+        partyListRequestTime = 0;
+    }
 }

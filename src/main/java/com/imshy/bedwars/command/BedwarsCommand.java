@@ -32,7 +32,7 @@ public class BedwarsCommand extends CommandBase {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/bw <setkey|lookup|all|info|autoplay|rejoin|blacklist|history|status|clear> [args]";
+        return "/bw <setkey|lookup|all|info|autoplay|rejoin|blacklist|history|status|clear|reset> [args]";
     }
 
     @Override
@@ -54,6 +54,7 @@ public class BedwarsCommand extends CommandBase {
             sendMessage(sender, "/bw history [player] - View encounter history");
             sendMessage(sender, "/bw status - Show cache and rate limit info");
             sendMessage(sender, "/bw clear - Clear the stats cache");
+            sendMessage(sender, "/bw reset - Reset all HUD and runtime state (like a fresh boot)");
             return;
         }
 
@@ -195,6 +196,10 @@ public class BedwarsCommand extends CommandBase {
             runtime.clearRecentJoins();
             sendMessage(sender, EnumChatFormatting.GREEN + "Cache cleared!");
 
+        } else if (subCommand.equals("reset")) {
+            runtime.resetToBootState();
+            sendMessage(sender, EnumChatFormatting.GREEN + "Mod state reset! HUD and runtime cleared.");
+
         } else if (subCommand.equals("autoplay")) {
             handleAutoplayCommand(sender, args);
 
@@ -212,7 +217,7 @@ public class BedwarsCommand extends CommandBase {
         if (args.length == 1) {
             return getListOfStringsMatchingLastWord(args, "setkey", "lookup", "all", "info", "autoplay",
                     "rejoin", "blacklist", "history",
-                    "status", "clear");
+                    "status", "clear", "reset");
         }
 
         if (args.length == 2) {
