@@ -136,6 +136,10 @@ public class MatchThreatService {
     }
 
     public void checkRushRiskPredictor(Minecraft mc, long currentTime) {
+        if (!ModConfig.isModEnabled()) {
+            return;
+        }
+
         if (state.matchStartTime <= 0 || (currentTime - state.matchStartTime) > RUSH_PREDICTOR_ACTIVE_WINDOW_MS) {
             return;
         }
@@ -186,6 +190,10 @@ public class MatchThreatService {
     }
 
     public void checkBedProximityWarnings(Minecraft mc, long currentTime) {
+        if (!ModConfig.isModEnabled()) {
+            return;
+        }
+
         if (state.playerBedBlocks.isEmpty()) {
             return;
         }

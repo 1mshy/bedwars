@@ -43,6 +43,10 @@ public class BedwarsHudRenderer {
                        TeamDangerAnalyzer teamDangerAnalyzer, WorldScanService worldScanService,
                        EnemyTrackingService enemyTrackingService,
                        long matchStartTime, List<ChatDetectedPlayer> chatDetectedPlayers) {
+        if (!ModConfig.isModEnabled()) {
+            return;
+        }
+
         if (!ModConfig.isHudEnabled()) {
             return;
         }

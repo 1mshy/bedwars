@@ -15,6 +15,7 @@ public class ModConfig {
     private static Configuration config;
 
     // Settings values
+    private static boolean modEnabled = true;
     private static String apiKey = "";
     private static int displayDuration = 10; // seconds
     private static int lowStarThreshold = 100;
@@ -504,6 +505,14 @@ public class ModConfig {
                     0.0, 1.0);
             hudBackgroundOpacity = hudBgOpacityProp.getDouble();
 
+            // Master enable/disable toggle
+            Property modEnabledProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "modEnabled",
+                    true,
+                    "Master toggle. When false, all automatic features (stat lookup, alerts, HUD, audio) are disabled.");
+            modEnabled = modEnabledProp.getBoolean();
+
             // Apply the loaded API key to HypixelAPI
             if (apiKey != null && !apiKey.isEmpty()) {
                 HypixelAPI.setApiKey(apiKey);
@@ -749,5 +758,15 @@ public class ModConfig {
 
     public static double getEnemyTrackingPickupRange() {
         return enemyTrackingPickupRange;
+    }
+
+    public static boolean isModEnabled() {
+        return modEnabled;
+    }
+
+    public static void setModEnabled(boolean enabled) {
+        modEnabled = enabled;
+        config.get(Configuration.CATEGORY_GENERAL, "modEnabled", true).set(enabled);
+        config.save();
     }
 }

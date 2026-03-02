@@ -103,6 +103,10 @@ public class LobbyTrackerService {
             return;
         }
 
+        if (!ModConfig.isModEnabled()) {
+            return;
+        }
+
         final String playerName = player.getName();
 
         synchronized (state.recentJoins) {

@@ -467,6 +467,10 @@ public class BedwarsRuntime {
 
     @SubscribeEvent
     public void onRenderLiving(RenderLivingEvent.Specials.Post event) {
+        if (!ModConfig.isModEnabled()) {
+            return;
+        }
+
         if (!(event.entity instanceof EntityPlayer)) {
             return;
         }
@@ -505,6 +509,10 @@ public class BedwarsRuntime {
 
     @SubscribeEvent
     public void onRenderWorldLast(RenderWorldLastEvent event) {
+        if (!ModConfig.isModEnabled()) {
+            return;
+        }
+
         if (state.gamePhase != GamePhase.IN_GAME || !ModConfig.isGeneratorDisplayEnabled()) {
             return;
         }

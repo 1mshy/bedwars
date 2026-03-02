@@ -30,6 +30,10 @@ public class AudioCueManager {
             return;
         }
 
+        if (!ModConfig.isModEnabled()) {
+            return;
+        }
+
         if (!mc.isCallingFromMinecraftThread()) {
             mc.addScheduledTask(new Runnable() {
                 @Override

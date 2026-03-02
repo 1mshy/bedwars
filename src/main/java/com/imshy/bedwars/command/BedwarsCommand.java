@@ -32,7 +32,7 @@ public class BedwarsCommand extends CommandBase {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/bw <setkey|lookup|all|info|autoplay|rejoin|blacklist|history|status|clear|reset> [args]";
+        return "/bw <setkey|lookup|all|info|autoplay|rejoin|blacklist|history|status|clear|reset|disable|enable> [args]";
     }
 
     @Override
@@ -55,6 +55,8 @@ public class BedwarsCommand extends CommandBase {
             sendMessage(sender, "/bw status - Show cache and rate limit info");
             sendMessage(sender, "/bw clear - Clear the stats cache");
             sendMessage(sender, "/bw reset - Reset all HUD and runtime state (like a fresh boot)");
+            sendMessage(sender, "/bw disable - Disable all automatic features (stat lookup, alerts, HUD, audio)");
+            sendMessage(sender, "/bw enable - Re-enable all automatic features");
             return;
         }
 
@@ -185,6 +187,7 @@ public class BedwarsCommand extends CommandBase {
             sendMessage(sender, String.format("History: %d unique players", db.getHistorySize()));
             sendMessage(sender, "Game phase: " + runtime.getGamePhase().name());
             sendMessage(sender, "Rush predictor: " + (ModConfig.isRushPredictorEnabled() ? "Enabled" : "Disabled"));
+            sendMessage(sender, "Mod: " + (ModConfig.isModEnabled() ? EnumChatFormatting.GREEN + "Enabled" : EnumChatFormatting.RED + "Disabled"));
             if (ModConfig.isRushPredictorEnabled()) {
                 int eta = runtime.getLastPredictedRushEtaSeconds();
                 String etaText = eta > 0 ? (eta + "s") : "N/A";
@@ -199,6 +202,14 @@ public class BedwarsCommand extends CommandBase {
         } else if (subCommand.equals("reset")) {
             runtime.resetToBootState();
             sendMessage(sender, EnumChatFormatting.GREEN + "Mod state reset! HUD and runtime cleared.");
+
+        } else if (subCommand.equals("disable")) {
+            ModConfig.setModEnabled(false);
+            sendMessage(sender, EnumChatFormatting.GREEN + "Mod disabled. All automatic features are off. Use /bw enable to re-enable.");
+
+        } else if (subCommand.equals("enable")) {
+            ModConfig.setModEnabled(true);
+            sendMessage(sender, EnumChatFormatting.GREEN + "Mod enabled. All automatic features are active.");
 
         } else if (subCommand.equals("autoplay")) {
             handleAutoplayCommand(sender, args);
@@ -217,7 +228,7 @@ public class BedwarsCommand extends CommandBase {
         if (args.length == 1) {
             return getListOfStringsMatchingLastWord(args, "setkey", "lookup", "all", "info", "autoplay",
                     "rejoin", "blacklist", "history",
-                    "status", "clear", "reset");
+                    "status", "clear", "reset", "disable", "enable");
         }
 
         if (args.length == 2) {
