@@ -336,6 +336,11 @@ public class MatchThreatService {
             }
         }
 
+        // Armor-color check: compare leather helmet/chestplate dye color
+        if (ArmorColorTeamDetector.hasSameTeamColor(self, other)) {
+            return true;
+        }
+
         Character selfTabColor = getTabNamePrimaryColorCode(mc, self);
         Character otherTabColor = getTabNamePrimaryColorCode(mc, other);
         if (selfTabColor != null && otherTabColor != null) {

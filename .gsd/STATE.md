@@ -1,10 +1,10 @@
 # STATE.md
 
 > **Status**: `EXECUTION`
-> **Last Update**: 2026-02-27
+> **Last Update**: 2026-03-05
 
 ## Current Context
-Fixed requeue logic so the mod always requeues in pre-game lobbies regardless of config.
+Added armor-color based team detection using leather helmet/chestplate dye colors.
 
 ## Recent Accomplishments
 - [x] Project definition (SPEC)
@@ -12,8 +12,10 @@ Fixed requeue logic so the mod always requeues in pre-game lobbies regardless of
 - [x] Requirement mapping (REQUIREMENTS)
 - [x] Disconnection detection feature (RuntimeState, BedwarsRuntime, LobbyTrackerService)
 - [x] Fix requeue logic — only respect requeue config after game has started
+- [x] Armor-color team detection (ArmorColorTeamDetector + MatchThreatService integration)
 
 ## Next Steps
+- [ ] In-game manual verification of armor-color team detection
 - [ ] In-game manual verification of requeue fix
 - [ ] In-game manual verification of disconnection detection
 - [ ] Start Phase 1: Resource Intelligence HUD (original roadmap)
