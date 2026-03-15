@@ -233,20 +233,9 @@ public class BedwarsOverlayRenderer {
             sb.append(EnumChatFormatting.YELLOW).append("Prot ").append(toRoman(data.armorProtectionLevel)).append(" ");
         }
 
-        // Hotbar items (abbreviated, up to 5)
-        if (!data.observedHotbarItems.isEmpty()) {
-            sb.append(EnumChatFormatting.WHITE);
-            int shown = 0;
-            for (ItemStack item : data.observedHotbarItems) {
-                if (shown >= 5) break;
-                if (shown > 0) sb.append(" ");
-                sb.append(getItemAbbreviation(item));
-                shown++;
-            }
-        }
-
         String text = sb.toString().trim();
-        if (text.isEmpty()) {
+        boolean hasItems = !data.observedHotbarItems.isEmpty();
+        if (text.isEmpty() && !hasItems) {
             return;
         }
 
@@ -270,19 +259,59 @@ public class BedwarsOverlayRenderer {
         Tessellator tessellator = Tessellator.getInstance();
         WorldRenderer worldRenderer = tessellator.getWorldRenderer();
 
-        int textWidth = fontRenderer.getStringWidth(text);
-        int halfWidth = textWidth / 2;
+        int baseTextWidth = fontRenderer.getStringWidth(text);
+        int totalWidth = baseTextWidth;
+        int itemDisplayCount = Math.min(data.observedHotbarItems.size(), 5);
+        if (hasItems) {
+            if (!text.isEmpty()) {
+                totalWidth += 4; // gap between text and items
+            }
+            totalWidth += itemDisplayCount * 10;
+        }
+
+        int halfWidth = totalWidth / 2;
 
         GlStateManager.disableTexture2D();
         worldRenderer.begin(7, DefaultVertexFormats.POSITION_COLOR);
-        worldRenderer.pos(-halfWidth - 1, -1, 0.0D).color(0.0F, 0.0F, 0.0F, 0.3F).endVertex();
-        worldRenderer.pos(-halfWidth - 1, 8, 0.0D).color(0.0F, 0.0F, 0.0F, 0.3F).endVertex();
-        worldRenderer.pos(halfWidth + 1, 8, 0.0D).color(0.0F, 0.0F, 0.0F, 0.3F).endVertex();
-        worldRenderer.pos(halfWidth + 1, -1, 0.0D).color(0.0F, 0.0F, 0.0F, 0.3F).endVertex();
+        worldRenderer.pos(-halfWidth - 2, -1, 0.0D).color(0.0F, 0.0F, 0.0F, 0.3F).endVertex();
+        worldRenderer.pos(-halfWidth - 2, 9, 0.0D).color(0.0F, 0.0F, 0.0F, 0.3F).endVertex();
+        worldRenderer.pos(halfWidth + 2, 9, 0.0D).color(0.0F, 0.0F, 0.0F, 0.3F).endVertex();
+        worldRenderer.pos(halfWidth + 2, -1, 0.0D).color(0.0F, 0.0F, 0.0F, 0.3F).endVertex();
         tessellator.draw();
         GlStateManager.enableTexture2D();
 
-        fontRenderer.drawString(text, -halfWidth, 0, 0xFFFFFFFF);
+        int currentX = -halfWidth;
+        if (!text.isEmpty()) {
+            fontRenderer.drawString(text, currentX, 0, 0xFFFFFFFF);
+            currentX += baseTextWidth + 4;
+        }
+
+        if (hasItems) {
+            net.minecraft.client.renderer.RenderHelper.enableGUIStandardItemLighting();
+            GlStateManager.enableDepth();
+            GlStateManager.enableRescaleNormal();
+
+            int shown = 0;
+            for (ItemStack stack : data.observedHotbarItems) {
+                if (shown >= 5) break;
+
+                GlStateManager.pushMatrix();
+                GlStateManager.translate(currentX, 0, 0.01f);
+                float itemScale = 9.0f / 16.0f;
+                GlStateManager.scale(itemScale, itemScale, 1.0f);
+
+                mc.getRenderItem().renderItemIntoGUI(stack, 0, 0);
+
+                GlStateManager.popMatrix();
+
+                currentX += 10;
+                shown++;
+            }
+
+            GlStateManager.disableRescaleNormal();
+            net.minecraft.client.renderer.RenderHelper.disableStandardItemLighting();
+            GlStateManager.disableDepth();
+        }
 
         GlStateManager.enableDepth();
         GlStateManager.depthMask(true);
@@ -300,25 +329,5 @@ public class BedwarsOverlayRenderer {
             case 4: return "IV";
             default: return String.valueOf(level);
         }
-    }
-
-    private static String getItemAbbreviation(ItemStack stack) {
-        if (stack == null || stack.getItem() == null) return "?";
-        String name = stack.getDisplayName();
-        // Common bedwars items
-        if (name.contains("Sword")) return "\u2694";
-        if (name.contains("Bow")) return "\u2639";
-        if (name.contains("Pickaxe")) return "\u26CF";
-        if (name.contains("Axe")) return "\u2692";
-        if (name.contains("Pearl")) return "\u2726";
-        if (name.contains("Fireball")) return "\u2739";
-        if (name.contains("TNT")) return "TNT";
-        if (name.contains("Wool") || name.contains("Terracotta") || name.contains("Clay") || name.contains("Sandstone") || name.contains("End Stone") || name.contains("Obsidian") || name.contains("Planks")) return "\u25A0";
-        if (name.contains("Potion") || name.contains("Water")) return "\u2617";
-        if (name.contains("Golden Apple")) return "\u2764";
-        if (name.contains("Shears")) return "\u2702";
-        // Fallback: first 3 chars
-        if (name.length() > 3) return name.substring(0, 3);
-        return name;
     }
 }

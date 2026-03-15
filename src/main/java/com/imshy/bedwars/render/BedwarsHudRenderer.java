@@ -68,6 +68,9 @@ public class BedwarsHudRenderer {
             if (line.skinLocation != null) {
                 w += FACE_OFFSET;
             }
+            if (line.items != null && !line.items.isEmpty()) {
+                w += 4 + line.items.size() * 10;
+            }
             if (w > panelWidth) {
                 panelWidth = w;
             }
@@ -111,6 +114,30 @@ public class BedwarsHudRenderer {
                     textX += FACE_OFFSET;
                 }
                 fr.drawStringWithShadow(line.text, textX, drawY, 0xFFFFFFFF);
+
+                if (line.items != null && !line.items.isEmpty()) {
+                    int itemX = textX + fr.getStringWidth(line.text) + 4;
+
+                    net.minecraft.client.renderer.RenderHelper.enableGUIStandardItemLighting();
+                    GlStateManager.enableDepth();
+                    GlStateManager.enableRescaleNormal();
+
+                    for (ItemStack stack : line.items) {
+                        GlStateManager.pushMatrix();
+                        GlStateManager.translate(itemX, drawY + 1, 0);
+                        float itemScale = 9.0f / 16.0f;
+                        GlStateManager.scale(itemScale, itemScale, 1.0f);
+                        mc.getRenderItem().renderItemIntoGUI(stack, 0, 0);
+                        GlStateManager.popMatrix();
+
+                        itemX += 10;
+                    }
+
+                    GlStateManager.disableRescaleNormal();
+                    net.minecraft.client.renderer.RenderHelper.disableStandardItemLighting();
+                    GlStateManager.disableDepth();
+                }
+
                 drawY += LINE_HEIGHT;
             }
         }
@@ -398,11 +425,17 @@ public class BedwarsHudRenderer {
         final String text;
         final boolean isGap;
         final ResourceLocation skinLocation;
+        final List<ItemStack> items;
 
         private HudLine(String text, boolean isGap, ResourceLocation skinLocation) {
+            this(text, isGap, skinLocation, null);
+        }
+
+        private HudLine(String text, boolean isGap, ResourceLocation skinLocation, List<ItemStack> items) {
             this.text = text;
             this.isGap = isGap;
             this.skinLocation = skinLocation;
+            this.items = items;
         }
 
         static HudLine text(String text) {
@@ -415,6 +448,10 @@ public class BedwarsHudRenderer {
 
         static HudLine gap() {
             return new HudLine("", true, null);
+        }
+
+        static HudLine itemsLine(String text, List<ItemStack> items) {
+            return new HudLine(text, false, null, items);
         }
     }
 
@@ -484,16 +521,15 @@ public class BedwarsHudRenderer {
 
         // Hotbar items
         if (!nearestData.observedHotbarItems.isEmpty()) {
-            StringBuilder hotbar = new StringBuilder();
-            hotbar.append(EnumChatFormatting.GRAY).append("Hotbar: ").append(EnumChatFormatting.WHITE);
+            String prefix = EnumChatFormatting.GRAY + "Hotbar: " + EnumChatFormatting.WHITE;
+            List<ItemStack> toDraw = new ArrayList<ItemStack>();
             int shown = 0;
             for (ItemStack stack : nearestData.observedHotbarItems) {
                 if (shown >= 6) break;
-                if (shown > 0) hotbar.append(EnumChatFormatting.GRAY).append(", ").append(EnumChatFormatting.WHITE);
-                hotbar.append(getShortItemName(stack));
+                toDraw.add(stack);
                 shown++;
             }
-            lines.add(HudLine.text(hotbar.toString()));
+            lines.add(HudLine.itemsLine(prefix, toDraw));
         }
 
         return true;
@@ -530,24 +566,4 @@ public class BedwarsHudRenderer {
         return EnumChatFormatting.WHITE.toString();
     }
 
-    private static String getShortItemName(ItemStack stack) {
-        if (stack == null || stack.getItem() == null) return "?";
-        String name = stack.getDisplayName();
-        if (name.contains("Sword")) return "Sword";
-        if (name.contains("Bow")) return "Bow";
-        if (name.contains("Pickaxe")) return "Pick";
-        if (name.contains("Axe")) return "Axe";
-        if (name.contains("Pearl")) return "Pearl";
-        if (name.contains("Fireball")) return "Fireball";
-        if (name.contains("TNT")) return "TNT";
-        if (name.contains("Wool") || name.contains("Terracotta") || name.contains("Clay")
-                || name.contains("Sandstone") || name.contains("End Stone")
-                || name.contains("Obsidian") || name.contains("Planks")) return "Blocks";
-        if (name.contains("Potion") || name.contains("Water")) return "Potion";
-        if (name.contains("Golden Apple")) return "Gapple";
-        if (name.contains("Shears")) return "Shears";
-        if (name.contains("Crossbow")) return "Crossbow";
-        if (name.length() > 10) return name.substring(0, 10);
-        return name;
-    }
 }

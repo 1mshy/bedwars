@@ -230,8 +230,7 @@ public class BedwarsRuntime {
             if (message.contains("GAME OVER!") ||
                     (message.contains("disconnected") && message.contains("BED WARS")) ||
                     (message.contains("You died!") && message.contains("FINAL KILL")) ||
-                    message.contains("You have been eliminated!") ||
-                    message.trim().startsWith("1st Killer - ")) {
+                    message.contains("You have been eliminated!")) {
 
                 System.out.println("[BedwarsStats] LOSS detected!");
                 PlayerDatabase db = PlayerDatabase.getInstance();
