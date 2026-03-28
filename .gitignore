@@ -20,3 +20,9 @@ build
 # other
 eclipse
 run
+
+#ai
+.claude
+.gemini
+.agent
+.gsd

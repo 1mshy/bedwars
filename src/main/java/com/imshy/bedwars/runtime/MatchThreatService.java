@@ -174,15 +174,21 @@ public class MatchThreatService {
         }
 
         if (secondsUntilRush <= ModConfig.getRushWarningThresholdSeconds()) {
-            String mapLabel = "Unknown".equals(state.lastDetectedMapName)
-                    ? "unknown map"
-                    : state.lastDetectedMapName;
+            TeamDangerAnalyzer.TeamDangerEntry topTeam = teamDangerAnalyzer.getHighestStarEnemyTeam(mc);
 
-            mc.thePlayer.addChatMessage(new ChatComponentText(
-                    EnumChatFormatting.GOLD + "[Rush Risk] " +
-                            riskLevelColor(estimate.riskLevel) + estimate.riskLevel + " " +
-                            EnumChatFormatting.YELLOW + "first rush likely in ~" + secondsUntilRush + "s " +
-                            EnumChatFormatting.GRAY + "(" + mapLabel + ", base " + baseRushSeconds + "s)"));
+            String rushMessage;
+            if (topTeam != null) {
+                rushMessage = EnumChatFormatting.GOLD + "[Rush Risk] " +
+                        topTeam.teamColor + topTeam.teamName +
+                        EnumChatFormatting.GRAY + " (" + topTeam.totalStars + "\u2B50) " +
+                        EnumChatFormatting.YELLOW + "most likely to rush first";
+            } else {
+                rushMessage = EnumChatFormatting.GOLD + "[Rush Risk] " +
+                        riskLevelColor(estimate.riskLevel) + estimate.riskLevel + " " +
+                        EnumChatFormatting.YELLOW + "rush expected soon";
+            }
+
+            mc.thePlayer.addChatMessage(new ChatComponentText(rushMessage));
 
             AudioCueManager.playCue(mc, AudioCueManager.CueType.BED_DANGER);
             state.rushRiskWarningSent = true;

@@ -24,6 +24,20 @@ public class TeamDangerAnalyzer {
         this.state = state;
     }
 
+    public TeamDangerEntry getHighestStarEnemyTeam(Minecraft mc) {
+        List<TeamDangerEntry> summaries = buildTeamDangerSummary(mc);
+        TeamDangerEntry best = null;
+        for (TeamDangerEntry summary : summaries) {
+            if (summary.isOwnTeam || summary.playersWithKnownStars == 0) {
+                continue;
+            }
+            if (best == null || summary.totalStars > best.totalStars) {
+                best = summary;
+            }
+        }
+        return best;
+    }
+
     public double getHighestEnemyTeamThreatAverage(Minecraft mc) {
         List<TeamDangerEntry> summaries = buildTeamDangerSummary(mc);
         double highest = 0.0;
@@ -80,6 +94,12 @@ public class TeamDangerAnalyzer {
                     });
                 }
                 continue;
+            }
+
+            int stars = stats.getStars();
+            if (stars > 0) {
+                summary.playersWithKnownStars++;
+                summary.totalStars += stars;
             }
 
             double score = threatToScore(stats.getThreatLevel());
@@ -180,6 +200,8 @@ public class TeamDangerAnalyzer {
         public int totalPlayers;
         public int playersWithKnownThreat;
         public double totalThreatScore;
+        public int totalStars;
+        public int playersWithKnownStars;
 
         TeamDangerEntry(String teamName, String teamColor, boolean isOwnTeam) {
             this.teamName = teamName;
