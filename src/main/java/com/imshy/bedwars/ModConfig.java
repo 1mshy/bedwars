@@ -4,6 +4,9 @@ import net.minecraftforge.common.config.Configuration;
 import net.minecraftforge.common.config.Property;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.File;
 
 /**
@@ -11,6 +14,8 @@ import java.io.File;
  * Persists settings like API key across restarts
  */
 public class ModConfig {
+
+    private static final Logger LOGGER = LogManager.getLogger("BedwarsStats");
 
     private static Configuration config;
 
@@ -508,11 +513,11 @@ public class ModConfig {
             // Apply the loaded API key to HypixelAPI
             if (apiKey != null && !apiKey.isEmpty()) {
                 HypixelAPI.setApiKey(apiKey);
-                System.out.println("[BedwarsStats] API key loaded from config!");
+                LOGGER.info("API key loaded from config");
             }
 
         } catch (Exception e) {
-            System.out.println("[BedwarsStats] Error loading config: " + e.getMessage());
+            LOGGER.error("Error loading config: {}", e.getMessage());
         } finally {
             if (config.hasChanged()) {
                 config.save();

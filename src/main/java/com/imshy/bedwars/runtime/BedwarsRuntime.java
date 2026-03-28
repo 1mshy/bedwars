@@ -4,6 +4,7 @@ import com.imshy.bedwars.AudioCueManager;
 import com.imshy.bedwars.AutoBlacklistManager;
 import com.imshy.bedwars.BedwarsStats;
 import com.imshy.bedwars.HypixelAPI;
+import com.imshy.bedwars.HypixelMessages;
 import com.imshy.bedwars.ModConfig;
 import com.imshy.bedwars.PlayerDatabase;
 import com.imshy.bedwars.render.BedwarsHudRenderer;
@@ -21,6 +22,9 @@ import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.event.entity.EntityJoinWorldEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Random;
@@ -51,6 +55,7 @@ public class BedwarsRuntime {
             "Who's the best player here?",
             "This lobby is gonna be quick"
     };
+    private static final Logger LOGGER = LogManager.getLogger("BedwarsStats");
     private static final Random baitRandom = new Random();
 
     private final RuntimeState state;
@@ -162,7 +167,7 @@ public class BedwarsRuntime {
             return;
         }
 
-        if (message.contains("You are not currently in a party")) {
+        if (message.contains(HypixelMessages.NOT_IN_PARTY)) {
             state.partyListPending = false;
             return;
         }
@@ -199,7 +204,7 @@ public class BedwarsRuntime {
         handleChatMessageStatLookup(mc, message);
         handleReconnectMessage(mc, message);
 
-        if (message.contains("Protect your bed and destroy the enemy beds.")) {
+        if (message.contains(HypixelMessages.GAME_START)) {
             if (state.gamePhase != GamePhase.IN_GAME) {
                 lobbyTrackerService.activateMatchTracking(mc);
             }
@@ -208,12 +213,12 @@ public class BedwarsRuntime {
         if (state.gamePhase == GamePhase.IN_GAME && mc.thePlayer != null) {
             String playerName = mc.thePlayer.getName();
 
-            if (message.contains("VICTORY!") ||
-                    (message.contains("1st Killer") && message.contains(playerName)) ||
-                    message.contains("You won!") ||
-                    (message.contains("Winner") && message.contains(playerName))) {
+            if (message.contains(HypixelMessages.WIN_VICTORY) ||
+                    (message.contains(HypixelMessages.WIN_1ST_KILLER) && message.contains(playerName)) ||
+                    message.contains(HypixelMessages.WIN_YOU_WON) ||
+                    (message.contains(HypixelMessages.WIN_WINNER) && message.contains(playerName))) {
 
-                System.out.println("[BedwarsStats] WIN detected!");
+                LOGGER.info("WIN detected");
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.WIN);
                 PlayerDatabase.getInstance().clearCurrentGame();
                 state.gamePhase = GamePhase.IDLE;
@@ -227,13 +232,13 @@ public class BedwarsRuntime {
                 return;
             }
 
-            if (message.contains("GAME OVER!") ||
+            if (message.contains(HypixelMessages.LOSS_GAME_OVER) ||
                     (message.contains("disconnected") && message.contains("BED WARS")) ||
                     (message.contains("You died!") && message.contains("FINAL KILL")) ||
-                    message.contains("You have been eliminated!") ||
-                    message.trim().startsWith("1st Killer - ")) {
+                    message.contains(HypixelMessages.LOSS_ELIMINATED) ||
+                    message.trim().startsWith(HypixelMessages.LOSS_1ST_KILLER)) {
 
-                System.out.println("[BedwarsStats] LOSS detected!");
+                LOGGER.info("LOSS detected");
                 PlayerDatabase db = PlayerDatabase.getInstance();
                 db.recordGameEnd(PlayerDatabase.GameOutcome.LOSS);
 
@@ -267,7 +272,7 @@ public class BedwarsRuntime {
             }
         }
 
-        if (state.autoplayEnabled && message.contains("Please don't spam the command!")) {
+        if (state.autoplayEnabled && message.contains(HypixelMessages.AUTOPLAY_RATE_LIMIT)) {
             state.autoplaySpamBlocked = true;
             state.autoplaySpamBlockedTime = System.currentTimeMillis();
             mc.thePlayer.addChatMessage(new ChatComponentText(
@@ -276,7 +281,7 @@ public class BedwarsRuntime {
                             EnumChatFormatting.GRAY + "\u2014 retrying in 7s..."));
         }
 
-        if (message.contains("You left.") || message.contains("Sending you to")) {
+        if (message.contains(HypixelMessages.PLAYER_LEFT) || message.contains(HypixelMessages.PLAYER_SENDING)) {
             synchronized (state.chatDetectedPlayers) {
                 state.chatDetectedPlayers.clear();
             }
@@ -289,7 +294,7 @@ public class BedwarsRuntime {
                 PlayerDatabase.getInstance().clearCurrentGame();
                 lobbyTrackerService.clearRecentJoins();
                 enemyTrackingService.clearAll();
-                System.out.println("[BedwarsStats] Left Bedwars game - unknown outcome.");
+                LOGGER.info("Left Bedwars game - unknown outcome");
             }
             state.gamePhase = GamePhase.IDLE;
         }
@@ -317,7 +322,7 @@ public class BedwarsRuntime {
             if (!state.disconnectedFromGame) {
                 state.disconnectedFromGame = true;
                 state.disconnectTime = System.currentTimeMillis();
-                System.out.println("[BedwarsStats] Disconnected from game — tracking paused.");
+                LOGGER.info("Disconnected from game — tracking paused");
                 mc.thePlayer.addChatMessage(new ChatComponentText(
                         EnumChatFormatting.GOLD + "[BW] " +
                                 EnumChatFormatting.RED + "\u26A0 Disconnected from game \u2014 tracking paused."));
@@ -500,7 +505,7 @@ public class BedwarsRuntime {
 
         String threatText = stats.getThreatColor() + "[" + threat.name() + "] " +
                 EnumChatFormatting.WHITE + stats.getStars() + "⭐ " +
-                EnumChatFormatting.YELLOW + String.format("%.1f", stats.getFkdr()) + " FKDR";
+                EnumChatFormatting.YELLOW + BedwarsStats.formatRatioShort(stats.getFkdr()) + " FKDR";
 
         overlayRenderer.renderThreatLabel(player, threatText, event.x, event.y, event.z);
 
@@ -632,7 +637,6 @@ public class BedwarsRuntime {
     }
 
     private void handleChatMessageStatLookup(Minecraft mc, String message) {
-        System.out.println("[DEBUG] Raw message: " + message);
         if (mc == null || mc.thePlayer == null || message == null
                 || state.disconnectedFromGame) {
             return;
@@ -756,7 +760,7 @@ public class BedwarsRuntime {
 
             @Override
             public void onError(String error) {
-                System.out.println("[BedwarsStats] Chat lookup error for " + chatterName + ": " + error);
+                LOGGER.warn("Chat lookup error for {}: {}", chatterName, error);
             }
         });
     }
@@ -799,7 +803,7 @@ public class BedwarsRuntime {
         if (matcher.matches() && matcher.group(1).equals(playerName)) {
             state.disconnectedFromGame = false;
             state.disconnectTime = 0;
-            System.out.println("[BedwarsStats] Reconnected to game — tracking resumed.");
+            LOGGER.info("Reconnected to game — tracking resumed");
             mc.thePlayer.addChatMessage(new ChatComponentText(
                     EnumChatFormatting.GOLD + "[BW] " +
                             EnumChatFormatting.GREEN + "\u2713 Reconnected \u2014 tracking resumed."));

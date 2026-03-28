@@ -82,11 +82,12 @@ public class BedwarsStats {
             // Extract beds broken
             bedsBroken = extractInt(bedwarsJson, "beds_broken_bedwars");
 
-            // Calculate ratios. Fall back to 0.0 (not raw counts) when denominator
-            // is zero — a genuine 0-death player is far too rare to justify showing
-            // their kill count as FKDR.
-            fkdr = finalDeaths > 0 ? (double) finalKills / finalDeaths : 0.0;
-            wlr = losses > 0 ? (double) wins / losses : 0.0;
+            // Calculate ratios. Use Double.MAX_VALUE as a sentinel for "infinite"
+            // (kills with 0 deaths / wins with 0 losses) so displays can show ∞.
+            fkdr = finalDeaths > 0 ? (double) finalKills / finalDeaths
+                    : (finalKills > 0 ? Double.MAX_VALUE : 0.0);
+            wlr = losses > 0 ? (double) wins / losses
+                    : (wins > 0 ? Double.MAX_VALUE : 0.0);
 
             loaded = true;
 
@@ -244,6 +245,26 @@ public class BedwarsStats {
     }
 
     /**
+     * Format a ratio value for display, showing "∞" when the sentinel Double.MAX_VALUE is used.
+     */
+    public static String formatRatio(double ratio) {
+        if (ratio == Double.MAX_VALUE) {
+            return "\u221e";
+        }
+        return String.format("%.2f", ratio);
+    }
+
+    /**
+     * Same as {@link #formatRatio} but with one decimal place, for compact HUD displays.
+     */
+    public static String formatRatioShort(double ratio) {
+        if (ratio == Double.MAX_VALUE) {
+            return "\u221e";
+        }
+        return String.format("%.1f", ratio);
+    }
+
+    /**
      * Format stats for display
      */
     public String getDisplayString() {
@@ -255,7 +276,7 @@ public class BedwarsStats {
         }
 
         String color = getThreatColor();
-        return String.format("%s[%d\u2B50] %.2f FKDR", color, stars, fkdr);
+        return color + "[" + stars + "\u2B50] " + formatRatio(fkdr) + " FKDR";
     }
 
     // Getters

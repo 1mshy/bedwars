@@ -3,6 +3,9 @@ package com.imshy.bedwars;
 import com.google.gson.*;
 import com.google.gson.reflect.TypeToken;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.*;
 import java.lang.reflect.Type;
 import java.util.*;
@@ -12,6 +15,8 @@ import java.util.*;
  * Data is stored as JSON in config/bedwarsstats/playerdata.json
  */
 public class PlayerDatabase {
+
+    private static final Logger LOGGER = LogManager.getLogger("BedwarsStats");
 
     private static final String DATA_DIR = "config/bedwarsstats";
     private static final String DATA_FILE = DATA_DIR + "/playerdata.json";
@@ -110,7 +115,7 @@ public class PlayerDatabase {
         String key = playerName.toLowerCase();
         blacklist.put(key, new BlacklistEntry(playerName, reason, "MANUAL", 0L, 0L));
         save();
-        System.out.println("[BedwarsStats] Added " + playerName + " to blacklist: " + reason);
+        LOGGER.info("Added {} to blacklist: {}", playerName, reason);
     }
 
     /**
@@ -150,7 +155,7 @@ public class PlayerDatabase {
         String key = playerName.toLowerCase();
         if (blacklist.remove(key) != null) {
             save();
-            System.out.println("[BedwarsStats] Removed " + playerName + " from blacklist");
+            LOGGER.info("Removed {} from blacklist", playerName);
             return true;
         }
         return false;
@@ -272,7 +277,7 @@ public class PlayerDatabase {
             recordEncounter(playerKey, null, outcome);
         }
         save();
-        System.out.println("[BedwarsStats] Recorded " + outcome + " against " + currentGamePlayers.size() + " players");
+        LOGGER.info("Recorded {} against {} players", outcome, currentGamePlayers.size());
     }
 
     /**
@@ -432,11 +437,10 @@ public class PlayerDatabase {
             gson.toJson(root, writer);
             writer.close();
 
-            System.out.println("[BedwarsStats] Saved player database");
+            LOGGER.debug("Saved player database");
 
         } catch (Exception e) {
-            System.out.println("[BedwarsStats] Error saving player database: " + e.getMessage());
-            e.printStackTrace();
+            LOGGER.error("Error saving player database: {}", e.getMessage());
         }
     }
 
@@ -446,7 +450,7 @@ public class PlayerDatabase {
     public void load() {
         File file = new File(DATA_FILE);
         if (!file.exists()) {
-            System.out.println("[BedwarsStats] No player database found, starting fresh");
+            LOGGER.info("No player database found, starting fresh");
             return;
         }
 
@@ -478,13 +482,10 @@ public class PlayerDatabase {
             normalizeBlacklistEntries();
             cleanupExpiredAutoBlacklistEntries();
 
-            System.out.println("[BedwarsStats] Loaded player database: " +
-                    blacklist.size() + " blacklisted, " +
-                    history.size() + " in history");
+            LOGGER.info("Loaded player database: {} blacklisted, {} in history", blacklist.size(), history.size());
 
         } catch (Exception e) {
-            System.out.println("[BedwarsStats] Error loading player database: " + e.getMessage());
-            e.printStackTrace();
+            LOGGER.error("Error loading player database: {}", e.getMessage());
         }
     }
 }

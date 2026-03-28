@@ -31,6 +31,11 @@ public class BedwarsMod {
         // Register the /bw command.
         ClientCommandHandler.instance.registerCommand(new BedwarsCommand(runtime));
 
-        System.out.println("[BedwarsStats] Mod initialized! Use /bw setkey <apikey> to set your Hypixel API key.");
+        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            @Override
+            public void run() {
+                HypixelAPI.shutdown();
+            }
+        }));
     }
 }

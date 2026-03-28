@@ -12,10 +12,15 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.EnumChatFormatting;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.Iterator;
 import java.util.List;
 
 public class LobbyTrackerService {
+    private static final Logger LOGGER = LogManager.getLogger("BedwarsStats");
+
     private final RuntimeState state;
     private final MatchThreatService matchThreatService;
 
@@ -59,7 +64,7 @@ public class LobbyTrackerService {
         state.tabListScanPending = true;
         state.tabListScanScheduledTime = System.currentTimeMillis() + 3000;
 
-        System.out.println("[BedwarsStats] Bedwars match started - stat tracking activated!");
+        LOGGER.info("Bedwars match started - stat tracking activated");
 
         if (state.autoplayEnabled) {
             state.autoplayCheckTime = System.currentTimeMillis() + RuntimeState.AUTOPLAY_CHECK_DELAY;
@@ -197,11 +202,11 @@ public class LobbyTrackerService {
 
                 @Override
                 public void onError(String error) {
-                    System.out.println("[BedwarsStats] Error: " + error);
+                    LOGGER.warn("Stat lookup error for {}: {}", playerName, error);
                 }
             });
         } else {
-            System.out.println("[BedwarsStats] Player joined: " + playerName + " (No API key set)");
+            LOGGER.debug("Player joined: {} (no API key set)", playerName);
         }
     }
 
@@ -233,7 +238,7 @@ public class LobbyTrackerService {
             });
         }
 
-        System.out.println("[BedwarsStats] Tab list scan: queued stats for " + allPlayers.size() + " players.");
+        LOGGER.debug("Tab list scan: queued stats for {} players", allPlayers.size());
     }
 
     public void trimRecentJoins() {
