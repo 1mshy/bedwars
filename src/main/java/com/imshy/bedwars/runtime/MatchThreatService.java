@@ -240,7 +240,7 @@ public class MatchThreatService {
         }
     }
 
-    public boolean isWatchdogBotName(String playerName) {
+    public static boolean isWatchdogBotName(String playerName) {
         if (playerName == null || playerName.length() != 10) {
             return false;
         }

@@ -434,6 +434,11 @@ public class BedwarsRuntime {
 
         long currentTime = System.currentTimeMillis();
 
+        if (state.tabListScanPending && currentTime >= state.tabListScanScheduledTime) {
+            state.tabListScanPending = false;
+            lobbyTrackerService.scanTabListPlayers(mc);
+        }
+
         matchThreatService.captureEarlySpawnTeammates(mc, currentTime);
 
         if (state.fallbackBedPosition == null) {
