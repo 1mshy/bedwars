@@ -14,7 +14,11 @@ import net.minecraft.util.BlockPos;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.EnumChatFormatting;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 public class MatchThreatService {
+    private static final Logger LOGGER = LogManager.getLogger("BedwarsStats");
     private static final int BED_PROXIMITY_WARNING_DISTANCE = 15;
     private static final long BED_WARNING_COOLDOWN = 5000;
     private static final long BED_WARNING_START_DELAY = 10000;
@@ -45,8 +49,7 @@ public class MatchThreatService {
         if (!ModConfig.isMapAwareBedDetectionEnabled()) {
             state.playerBedBlocks.add(state.fallbackBedPosition);
             state.usingBedFallback = true;
-            System.out.println("[BedwarsStats] Map-aware bed detection disabled. Using spawn fallback: "
-                    + state.fallbackBedPosition);
+            LOGGER.debug("Map-aware bed detection disabled. Using spawn fallback: {}", state.fallbackBedPosition);
             return;
         }
 
@@ -82,7 +85,7 @@ public class MatchThreatService {
             state.playerBedBlocks.addAll(bedLocation.getBedBlocks());
             state.usingBedFallback = false;
             state.bedDetectionPending = false;
-            System.out.println("[BedwarsStats] Map-aware bed detected: " + state.playerBedBlocks);
+            LOGGER.info("Map-aware bed detected: {}", state.playerBedBlocks);
             return;
         }
 
@@ -96,7 +99,7 @@ public class MatchThreatService {
         if (state.fallbackBedPosition != null) {
             state.playerBedBlocks.add(state.fallbackBedPosition);
             state.usingBedFallback = true;
-            System.out.println("[BedwarsStats] Bed scan timed out. Using spawn fallback: " + state.fallbackBedPosition);
+            LOGGER.debug("Bed scan timed out. Using spawn fallback: {}", state.fallbackBedPosition);
         }
     }
 

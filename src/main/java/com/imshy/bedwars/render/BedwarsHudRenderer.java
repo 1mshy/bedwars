@@ -422,7 +422,7 @@ public class BedwarsHudRenderer {
                 String line = threatColor + "[" + threat.name() + "] " +
                         teamColor + cdp.name + " " +
                         EnumChatFormatting.GRAY + stats.getStars() + "\u2B50 " +
-                        EnumChatFormatting.YELLOW + String.format("%.1f", stats.getFkdr()) + " FKDR";
+                        EnumChatFormatting.YELLOW + BedwarsStats.formatRatioShort(stats.getFkdr()) + " FKDR";
 
                 lines.add(HudLine.playerLine(line, skin));
             }

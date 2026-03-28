@@ -3,6 +3,9 @@ package com.imshy.bedwars;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -58,6 +61,8 @@ public class HypixelAPI {
     private static int rateLimitedRequests = 0;
     private static volatile String lastFetchError = null;
 
+    private static final Logger LOGGER = LogManager.getLogger("BedwarsStats");
+
     // Thread pool for async API calls
     private static final java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors
             .newFixedThreadPool(3);
@@ -90,8 +95,7 @@ public class HypixelAPI {
         // Check cache first (with expiration)
         CachedStats cached = statsCache.get(playerName.toLowerCase());
         if (cached != null && !cached.isExpired()) {
-            System.out.println("[BedwarsStats] Using cached stats for " + playerName + " (" + cached.getAgeMinutes()
-                    + " min old)");
+            LOGGER.debug("Using cached stats for {} ({} min old)", playerName, cached.getAgeMinutes());
             callback.onStatsLoaded(cached.stats);
             return;
         }
@@ -106,7 +110,7 @@ public class HypixelAPI {
         executor.submit(() -> {
             try {
                 // Step 1: Get UUID from Mojang
-                System.out.println("[BedwarsStats] Looking up UUID for: " + playerName);
+                LOGGER.debug("Looking up UUID for: {}", playerName);
                 String uuid = getUUID(playerName);
                 if (uuid == null) {
                     callback.onError("Could not get UUID for " + playerName + " - player may not exist");
@@ -114,7 +118,7 @@ public class HypixelAPI {
                 }
 
                 // Step 2: Fetch stats from Hypixel
-                System.out.println("[BedwarsStats] Fetching Hypixel stats for UUID: " + uuid);
+                LOGGER.debug("Fetching Hypixel stats for UUID: {}", uuid);
                 String response = fetchHypixelStats(uuid);
                 if (response == null) {
                     String reason = lastFetchError != null ? lastFetchError : "unknown error";
@@ -132,8 +136,7 @@ public class HypixelAPI {
                 callback.onStatsLoaded(stats);
 
             } catch (Exception e) {
-                System.out.println("[BedwarsStats] Exception: " + e.getMessage());
-                e.printStackTrace();
+                LOGGER.error("Exception fetching stats for {}: {}", playerName, e.getMessage(), e);
                 callback.onError("Error fetching stats: " + e.getMessage());
             }
         });
@@ -146,8 +149,7 @@ public class HypixelAPI {
         // Check cache first (with expiration)
         CachedStats cached = statsCache.get(playerName.toLowerCase());
         if (cached != null && !cached.isExpired()) {
-            System.out.println("[BedwarsStats] Using cached stats for " + playerName + " (" + cached.getAgeMinutes()
-                    + " min old)");
+            LOGGER.debug("Using cached stats for {} ({} min old)", playerName, cached.getAgeMinutes());
             callback.onStatsLoaded(cached.stats);
             return;
         }
@@ -167,7 +169,7 @@ public class HypixelAPI {
             public void run() {
                 try {
                     // Fetch stats from Hypixel directly (UUID already known)
-                    System.out.println("[BedwarsStats] Fetching stats for " + playerName + " (UUID: " + uuid + ")");
+                    LOGGER.debug("Fetching stats for {} (UUID: {})", playerName, uuid);
                     String response = fetchHypixelStats(uuid);
                     if (response == null) {
                         String reason = lastFetchError != null ? lastFetchError : "unknown error";
@@ -185,8 +187,7 @@ public class HypixelAPI {
                     callback.onStatsLoaded(stats);
 
                 } catch (Exception e) {
-                    System.out.println("[BedwarsStats] Exception: " + e.getMessage());
-                    e.printStackTrace();
+                    LOGGER.error("Exception fetching stats for {}: {}", playerName, e.getMessage(), e);
                     callback.onError("Error fetching stats: " + e.getMessage());
                 }
             }
@@ -238,7 +239,7 @@ public class HypixelAPI {
             return uuid;
 
         } catch (Exception e) {
-            System.out.println("[BedwarsStats] Error getting UUID: " + e.getMessage());
+            LOGGER.warn("Error getting UUID for {}: {}", playerName, e.getMessage());
             return null;
         }
     }
@@ -274,7 +275,7 @@ public class HypixelAPI {
      */
     private static String fetchHypixelStats(String uuid) {
         if (!checkRateLimit()) {
-            System.out.println("[BedwarsStats] Rate limited! Please wait before making more requests.");
+            LOGGER.warn("Rate limited — request dropped (local throttle)");
             lastFetchError = "rate limited (local throttle)";
             return null;
         }
@@ -290,18 +291,18 @@ public class HypixelAPI {
 
             int responseCode = conn.getResponseCode();
             if (responseCode == 429) {
-                System.out.println("[BedwarsStats] Hypixel API rate limit reached (429)");
+                LOGGER.warn("Hypixel API rate limit reached (429)");
                 rateLimitedRequests++;
                 lastFetchError = "rate limited by Hypixel (429)";
                 return null;
             }
             if (responseCode == 403) {
-                System.out.println("[BedwarsStats] Hypixel API returned 403 - invalid API key");
+                LOGGER.error("Hypixel API returned 403 — invalid API key. Use /bw setkey <key> to set a valid key.");
                 lastFetchError = "invalid API key (403)";
                 return null;
             }
             if (responseCode != 200) {
-                System.out.println("[BedwarsStats] Hypixel API returned: " + responseCode);
+                LOGGER.warn("Hypixel API returned unexpected status: {}", responseCode);
                 lastFetchError = "HTTP " + responseCode;
                 return null;
             }
@@ -319,7 +320,7 @@ public class HypixelAPI {
             return response.toString();
 
         } catch (Exception e) {
-            System.out.println("[BedwarsStats] Error fetching Hypixel stats: " + e.getMessage());
+            LOGGER.error("Error fetching Hypixel stats: {}", e.getMessage());
             lastFetchError = e.getMessage();
             return null;
         }
@@ -353,6 +354,13 @@ public class HypixelAPI {
                 uuid.substring(12, 16) + "-" +
                 uuid.substring(16, 20) + "-" +
                 uuid.substring(20);
+    }
+
+    /**
+     * Shut down the background thread pool. Call this when the mod unloads.
+     */
+    public static void shutdown() {
+        executor.shutdown();
     }
 
     /**
