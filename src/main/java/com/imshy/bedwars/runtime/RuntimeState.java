@@ -55,6 +55,11 @@ final class RuntimeState {
     int lastPredictedRushEtaSeconds = -1;
     String lastDetectedMapName = "Unknown";
 
+    // --- Tab list scan state ---
+    final Set<String> pendingTabListFetches = new HashSet<String>();
+    boolean tabListScanPending = false;
+    long tabListScanScheduledTime = 0;
+
     // --- Enemy tracking state ---
     final Map<String, TrackedEnemy> trackedEnemies = new HashMap<String, TrackedEnemy>();
     final Map<Integer, double[]> trackedResourceItems = new HashMap<Integer, double[]>(); // entityId -> [posX, posY, posZ, isDiamond(1/0), stackSize]
@@ -113,6 +118,11 @@ final class RuntimeState {
         rushRiskWarningSent = false;
         lastPredictedRushEtaSeconds = -1;
         lastDetectedMapName = "Unknown";
+
+        // Tab list scan state
+        pendingTabListFetches.clear();
+        tabListScanPending = false;
+        tabListScanScheduledTime = 0;
 
         // Enemy tracking state
         trackedEnemies.clear();

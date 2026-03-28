@@ -5,6 +5,7 @@ import com.imshy.bedwars.BedwarsStats;
 import com.imshy.bedwars.HypixelAPI;
 import com.imshy.bedwars.ModConfig;
 import com.imshy.bedwars.PlayerDatabase;
+import com.imshy.bedwars.runtime.TabListScanner.TabListPlayer;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.entity.player.EntityPlayer;
@@ -12,6 +13,7 @@ import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.EnumChatFormatting;
 
 import java.util.Iterator;
+import java.util.List;
 
 public class LobbyTrackerService {
     private final RuntimeState state;
@@ -53,6 +55,9 @@ public class LobbyTrackerService {
         if (mc != null) {
             scanExistingPlayers(mc);
         }
+
+        state.tabListScanPending = true;
+        state.tabListScanScheduledTime = System.currentTimeMillis() + 3000;
 
         System.out.println("[BedwarsStats] Bedwars match started - stat tracking activated!");
 
@@ -198,6 +203,37 @@ public class LobbyTrackerService {
         } else {
             System.out.println("[BedwarsStats] Player joined: " + playerName + " (No API key set)");
         }
+    }
+
+    public void scanTabListPlayers(Minecraft mc) {
+        if (mc == null || mc.thePlayer == null || !HypixelAPI.hasApiKey()) {
+            return;
+        }
+
+        List<TabListPlayer> allPlayers = TabListScanner.scanAllPlayers(mc);
+        for (TabListPlayer tp : allPlayers) {
+            if (tp.isLocalPlayer) {
+                continue;
+            }
+
+            if (HypixelAPI.getCachedStats(tp.name) != null) {
+                continue;
+            }
+
+            if (state.pendingTabListFetches.contains(tp.name)) {
+                continue;
+            }
+
+            state.pendingTabListFetches.add(tp.name);
+            HypixelAPI.fetchStatsAsync(tp.name, new HypixelAPI.StatsCallback() {
+                @Override
+                public void onStatsLoaded(BedwarsStats stats) { }
+                @Override
+                public void onError(String error) { }
+            });
+        }
+
+        System.out.println("[BedwarsStats] Tab list scan: queued stats for " + allPlayers.size() + " players.");
     }
 
     public void trimRecentJoins() {

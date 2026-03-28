@@ -5,6 +5,8 @@ import com.imshy.bedwars.HypixelAPI;
 import com.imshy.bedwars.ModConfig;
 import com.imshy.bedwars.runtime.ChatDetectedPlayer;
 import com.imshy.bedwars.runtime.EnemyTrackingService;
+import com.imshy.bedwars.runtime.TabListScanner;
+import com.imshy.bedwars.runtime.TabListScanner.TabListPlayer;
 import com.imshy.bedwars.runtime.TeamDangerAnalyzer;
 import com.imshy.bedwars.runtime.TeamDangerAnalyzer.TeamDangerEntry;
 import com.imshy.bedwars.runtime.TrackedEnemy;
@@ -289,17 +291,19 @@ public class BedwarsHudRenderer {
             return false;
         }
 
+        Character ownColor = TabListScanner.getLocalPlayerColorCode(mc);
+        List<TabListPlayer> allPlayers = TabListScanner.scanAllPlayers(mc);
         List<ThreatPlayerEntry> threats = new ArrayList<ThreatPlayerEntry>();
 
-        for (EntityPlayer player : mc.theWorld.playerEntities) {
-            if (player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+        for (TabListPlayer tp : allPlayers) {
+            if (tp.isLocalPlayer) {
                 continue;
             }
-            if (player.isOnSameTeam(mc.thePlayer)) {
+            if (ownColor != null && tp.teamColorCode != null && tp.teamColorCode.equals(ownColor)) {
                 continue;
             }
 
-            BedwarsStats stats = HypixelAPI.getCachedStats(player.getName());
+            BedwarsStats stats = HypixelAPI.getCachedStats(tp.name);
             if (stats == null || !stats.isLoaded()) {
                 continue;
             }
@@ -309,13 +313,17 @@ public class BedwarsHudRenderer {
                 continue;
             }
 
+            EntityPlayer worldPlayer = findWorldPlayer(mc, tp.name);
+            int distance = -1;
             ResourceLocation skin = null;
-            if (player instanceof AbstractClientPlayer) {
-                skin = ((AbstractClientPlayer) player).getLocationSkin();
+            if (worldPlayer != null) {
+                distance = (int) mc.thePlayer.getDistanceToEntity(worldPlayer);
+                if (worldPlayer instanceof AbstractClientPlayer) {
+                    skin = ((AbstractClientPlayer) worldPlayer).getLocationSkin();
+                }
             }
 
-            int distance = (int) mc.thePlayer.getDistanceToEntity(player);
-            threats.add(new ThreatPlayerEntry(player.getName(), threat, distance, skin, getPlayerTeamColor(player)));
+            threats.add(new ThreatPlayerEntry(tp.name, threat, distance, skin, tp.teamColorPrefix));
         }
 
         if (threats.isEmpty()) {
@@ -325,7 +333,10 @@ public class BedwarsHudRenderer {
         Collections.sort(threats, new Comparator<ThreatPlayerEntry>() {
             @Override
             public int compare(ThreatPlayerEntry a, ThreatPlayerEntry b) {
-                return Integer.compare(a.distance, b.distance);
+                if (a.distance >= 0 && b.distance < 0) return -1;
+                if (a.distance < 0 && b.distance >= 0) return 1;
+                if (a.distance >= 0 && b.distance >= 0) return Integer.compare(a.distance, b.distance);
+                return a.name.compareToIgnoreCase(b.name);
             }
         });
 
@@ -336,14 +347,28 @@ public class BedwarsHudRenderer {
                     ? EnumChatFormatting.DARK_RED.toString()
                     : EnumChatFormatting.RED.toString();
 
+            String distanceText = entry.distance >= 0 ? entry.distance + "m" : "?m";
+
             String line = entry.teamColor + entry.name
                     + EnumChatFormatting.GRAY + " - "
                     + threatColor + entry.threat.name()
-                    + EnumChatFormatting.GRAY + "  " + entry.distance + "m";
+                    + EnumChatFormatting.GRAY + "  " + distanceText;
 
             lines.add(HudLine.playerLine(line, entry.skin));
         }
         return true;
+    }
+
+    private static EntityPlayer findWorldPlayer(Minecraft mc, String name) {
+        if (mc.theWorld == null) {
+            return null;
+        }
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            if (player.getName().equals(name)) {
+                return player;
+            }
+        }
+        return null;
     }
 
     private int[] computeOrigin(int screenWidth, int screenHeight, int panelWidth, int panelHeight) {
