@@ -6,6 +6,9 @@ import com.imshy.bedwars.HypixelAPI;
 import com.imshy.bedwars.runtime.TabListScanner.TabListPlayer;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.scoreboard.ScorePlayerTeam;
+import net.minecraft.scoreboard.Team;
 import net.minecraft.util.EnumChatFormatting;
 
 import java.util.ArrayList;
@@ -111,11 +114,84 @@ public class TeamDangerAnalyzer {
             summary.totalThreatScore += score;
         }
 
+        // Tab list display names may not have team colors yet at game start.
+        // Fall back to world entities + scoreboard teams when tab list yields too few teams.
         if (byColor.size() < TEAM_DANGER_MIN_TEAMS) {
-            return new ArrayList<TeamDangerEntry>();
+            return buildTeamDangerSummaryFromWorld(mc);
         }
 
         List<TeamDangerEntry> summaries = new ArrayList<TeamDangerEntry>(byColor.values());
+        Collections.sort(summaries, new Comparator<TeamDangerEntry>() {
+            @Override
+            public int compare(TeamDangerEntry a, TeamDangerEntry b) {
+                double avgA = a.getAverageThreatScore();
+                double avgB = b.getAverageThreatScore();
+                if (avgA != avgB) {
+                    return Double.compare(avgB, avgA);
+                }
+                return a.teamName.compareToIgnoreCase(b.teamName);
+            }
+        });
+
+        return summaries;
+    }
+
+    private List<TeamDangerEntry> buildTeamDangerSummaryFromWorld(Minecraft mc) {
+        String ownTeamKey = null;
+        Team ownTeam = mc.thePlayer.getTeam();
+        if (ownTeam instanceof ScorePlayerTeam) {
+            ownTeamKey = ((ScorePlayerTeam) ownTeam).getRegisteredName();
+        }
+
+        Map<String, TeamDangerEntry> byTeam = new HashMap<String, TeamDangerEntry>();
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            Team team = player.getTeam();
+            if (!(team instanceof ScorePlayerTeam)) {
+                continue;
+            }
+
+            ScorePlayerTeam scoreTeam = (ScorePlayerTeam) team;
+            String teamKey = scoreTeam.getRegisteredName();
+            if (teamKey == null) {
+                continue;
+            }
+
+            TeamDangerEntry summary = byTeam.get(teamKey);
+            if (summary == null) {
+                summary = new TeamDangerEntry(
+                        getTeamDisplayName(scoreTeam),
+                        getTeamColorPrefix(scoreTeam),
+                        teamKey.equals(ownTeamKey));
+                byTeam.put(teamKey, summary);
+            }
+
+            summary.totalPlayers++;
+
+            BedwarsStats stats = HypixelAPI.getCachedStats(player.getName());
+            if (stats == null || !stats.isLoaded()) {
+                continue;
+            }
+
+            int stars = stats.getStars();
+            if (stars > 0) {
+                summary.playersWithKnownStars++;
+                summary.totalStars += stars;
+            }
+
+            double score = threatToScore(stats.getThreatLevel());
+            if (score <= 0.0) {
+                continue;
+            }
+
+            summary.playersWithKnownThreat++;
+            summary.totalThreatScore += score;
+        }
+
+        if (byTeam.size() < TEAM_DANGER_MIN_TEAMS) {
+            return new ArrayList<TeamDangerEntry>();
+        }
+
+        List<TeamDangerEntry> summaries = new ArrayList<TeamDangerEntry>(byTeam.values());
         Collections.sort(summaries, new Comparator<TeamDangerEntry>() {
             @Override
             public int compare(TeamDangerEntry a, TeamDangerEntry b) {
@@ -147,6 +223,28 @@ public class TeamDangerAnalyzer {
                 dangerColor + "Avg " + dangerLabel +
                 EnumChatFormatting.GRAY + " (" +
                 summary.playersWithKnownThreat + "/" + summary.totalPlayers + " known)";
+    }
+
+    private static String getTeamDisplayName(ScorePlayerTeam team) {
+        String prefix = team.getColorPrefix();
+        if (prefix != null && !prefix.trim().isEmpty()) {
+            String stripped = EnumChatFormatting.getTextWithoutFormattingCodes(prefix);
+            if (stripped != null) {
+                stripped = stripped.replace("[", "").replace("]", "").trim();
+                if (!stripped.isEmpty()) {
+                    return stripped;
+                }
+            }
+        }
+        return team.getRegisteredName();
+    }
+
+    private static String getTeamColorPrefix(ScorePlayerTeam team) {
+        String prefix = team.getColorPrefix();
+        if (prefix == null || prefix.isEmpty()) {
+            return EnumChatFormatting.GRAY.toString();
+        }
+        return prefix;
     }
 
     private static double threatToScore(BedwarsStats.ThreatLevel threatLevel) {
