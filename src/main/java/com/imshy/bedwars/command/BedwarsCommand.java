@@ -32,7 +32,7 @@ public class BedwarsCommand extends CommandBase {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/bw <setkey|lookup|all|info|autoplay|rejoin|blacklist|history|status|clear|reset|disable|enable> [args]";
+        return "/bw <setkey|lookup|all|info|autoplay|afk|rejoin|blacklist|history|status|clear|reset|disable|enable> [args]";
     }
 
     @Override
@@ -214,6 +214,16 @@ public class BedwarsCommand extends CommandBase {
         } else if (subCommand.equals("autoplay")) {
             handleAutoplayCommand(sender, args);
 
+        } else if (subCommand.equals("afk")) {
+            boolean enabled = runtime.toggleAfk();
+            if (enabled) {
+                sendMessage(sender, EnumChatFormatting.GOLD + "[BW] " +
+                        EnumChatFormatting.GREEN + "AFK mode enabled — moving every 60 seconds.");
+            } else {
+                sendMessage(sender, EnumChatFormatting.GOLD + "[BW] " +
+                        EnumChatFormatting.RED + "AFK mode disabled.");
+            }
+
         } else if (subCommand.equals("rejoin")) {
             handleRejoinCommand(sender);
 
@@ -227,7 +237,7 @@ public class BedwarsCommand extends CommandBase {
             net.minecraft.util.BlockPos pos) {
         if (args.length == 1) {
             return getListOfStringsMatchingLastWord(args, "setkey", "lookup", "all", "info", "autoplay",
-                    "rejoin", "blacklist", "history",
+                    "afk", "rejoin", "blacklist", "history",
                     "status", "clear", "reset", "disable", "enable");
         }
 

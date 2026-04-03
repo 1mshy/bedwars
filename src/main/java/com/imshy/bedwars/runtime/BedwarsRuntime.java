@@ -12,6 +12,7 @@ import com.imshy.bedwars.render.BedwarsOverlayRenderer;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.ScaledResolution;
+import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.EnumChatFormatting;
@@ -382,6 +383,11 @@ public class BedwarsRuntime {
         state.clientTickCounter++;
 
         Minecraft mc = Minecraft.getMinecraft();
+
+        // AFK anti-kick: strafe left then right every 60 seconds
+        if (state.afkEnabled && mc.thePlayer != null) {
+            tickAfkMovement(mc);
+        }
 
         if (state.autoplayEnabled && state.autoplayPendingCheck && state.gamePhase == GamePhase.IN_GAME) {
             if (System.currentTimeMillis() >= state.autoplayCheckTime) {
@@ -808,5 +814,61 @@ public class BedwarsRuntime {
                     EnumChatFormatting.GOLD + "[BW] " +
                             EnumChatFormatting.GREEN + "\u2713 Reconnected \u2014 tracking resumed."));
         }
+    }
+
+    // ── AFK anti-kick ──────────────────────────────────────────────
+
+    private static final int AFK_STRAFE_TICKS = 5;
+    private static final long AFK_INTERVAL_MS = 60_000;
+
+    private void tickAfkMovement(Minecraft mc) {
+        if (state.afkMovePhase == 0) {
+            // Waiting for next cycle
+            if (System.currentTimeMillis() - state.afkLastMoveTime >= AFK_INTERVAL_MS) {
+                state.afkMovePhase = 1;
+                state.afkMoveTicks = 0;
+            }
+            return;
+        }
+
+        state.afkMoveTicks++;
+
+        if (state.afkMovePhase == 1) {
+            // Strafe left
+            KeyBinding.setKeyBindState(mc.gameSettings.keyBindLeft.getKeyCode(), true);
+            if (state.afkMoveTicks >= AFK_STRAFE_TICKS) {
+                KeyBinding.setKeyBindState(mc.gameSettings.keyBindLeft.getKeyCode(), false);
+                state.afkMovePhase = 2;
+                state.afkMoveTicks = 0;
+            }
+        } else if (state.afkMovePhase == 2) {
+            // Strafe right (back to original position)
+            KeyBinding.setKeyBindState(mc.gameSettings.keyBindRight.getKeyCode(), true);
+            if (state.afkMoveTicks >= AFK_STRAFE_TICKS) {
+                KeyBinding.setKeyBindState(mc.gameSettings.keyBindRight.getKeyCode(), false);
+                state.afkMovePhase = 0;
+                state.afkMoveTicks = 0;
+                state.afkLastMoveTime = System.currentTimeMillis();
+            }
+        }
+    }
+
+    public boolean toggleAfk() {
+        state.afkEnabled = !state.afkEnabled;
+        if (state.afkEnabled) {
+            state.afkLastMoveTime = System.currentTimeMillis();
+            state.afkMovePhase = 0;
+            state.afkMoveTicks = 0;
+        } else {
+            // Release any held keys
+            Minecraft mc = Minecraft.getMinecraft();
+            if (mc.gameSettings != null) {
+                KeyBinding.setKeyBindState(mc.gameSettings.keyBindLeft.getKeyCode(), false);
+                KeyBinding.setKeyBindState(mc.gameSettings.keyBindRight.getKeyCode(), false);
+            }
+            state.afkMovePhase = 0;
+            state.afkMoveTicks = 0;
+        }
+        return state.afkEnabled;
     }
 }

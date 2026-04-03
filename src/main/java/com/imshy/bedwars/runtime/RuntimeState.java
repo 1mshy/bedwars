@@ -65,6 +65,12 @@ final class RuntimeState {
     final Map<Integer, double[]> trackedResourceItems = new HashMap<Integer, double[]>(); // entityId -> [posX, posY, posZ, isDiamond(1/0), stackSize]
     long lastArmorHeldItemScan = 0;
 
+    // --- AFK movement state ---
+    boolean afkEnabled = false;
+    long afkLastMoveTime = 0;
+    int afkMovePhase = 0; // 0=idle, 1=moving left, 2=moving right
+    int afkMoveTicks = 0;
+
     // --- Cross-phase state ---
     boolean autoplayEnabled = false;
     String autoplayMode = "ones";
@@ -128,6 +134,8 @@ final class RuntimeState {
         trackedEnemies.clear();
         trackedResourceItems.clear();
         lastArmorHeldItemScan = 0;
+
+        // AFK state (intentionally NOT reset — user toggles manually)
 
         // Cross-phase state
         autoplayEnabled = false;
