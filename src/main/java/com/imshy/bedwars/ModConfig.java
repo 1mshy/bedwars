@@ -72,6 +72,13 @@ public class ModConfig {
     private static boolean enemyTrackingHudEnabled = true;
     private static double enemyTrackingPickupRange = 3.0;
 
+    // Fireball detection settings
+    private static boolean fireballDetectionEnabled = true;
+    private static boolean fireballOverlayEnabled = true;
+    private static boolean fireballAudioCueEnabled = true;
+    private static double fireballAlertRadius = 3.0; // blocks
+    private static int fireballMaxTraceDistance = 200; // blocks
+
     // HUD overlay settings
     private static boolean hudEnabled = true;
     private static boolean hudHighestThreatEnabled = true;
@@ -475,6 +482,44 @@ public class ModConfig {
                     1.0, 8.0);
             enemyTrackingPickupRange = enemyTrackingPickupRangeProp.getDouble();
 
+            // Fireball detection settings
+            Property fireballDetectionProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "fireballDetectionEnabled",
+                    true,
+                    "Detect incoming fireballs in Bedwars matches and predict their impact point");
+            fireballDetectionEnabled = fireballDetectionProp.getBoolean();
+
+            Property fireballOverlayProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "fireballOverlayEnabled",
+                    true,
+                    "Draw the fireball trajectory line and impact marker in the world");
+            fireballOverlayEnabled = fireballOverlayProp.getBoolean();
+
+            Property fireballAudioCueProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "fireballAudioCueEnabled",
+                    true,
+                    "Play an audio cue when a fireball is heading toward you");
+            fireballAudioCueEnabled = fireballAudioCueProp.getBoolean();
+
+            Property fireballAlertRadiusProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "fireballAlertRadius",
+                    3.0,
+                    "Max distance (blocks) between the fireball's projected path and the player to count as threatening",
+                    0.5, 10.0);
+            fireballAlertRadius = fireballAlertRadiusProp.getDouble();
+
+            Property fireballMaxTraceProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "fireballMaxTraceDistance",
+                    200,
+                    "Maximum ray-trace distance (blocks) when projecting a fireball's impact point",
+                    20, 500);
+            fireballMaxTraceDistance = fireballMaxTraceProp.getInt();
+
             Property hudPositionProp = config.get(
                     Configuration.CATEGORY_GENERAL,
                     "hudPosition",
@@ -751,6 +796,26 @@ public class ModConfig {
 
     public static double getEnemyTrackingPickupRange() {
         return enemyTrackingPickupRange;
+    }
+
+    public static boolean isFireballDetectionEnabled() {
+        return fireballDetectionEnabled;
+    }
+
+    public static boolean isFireballOverlayEnabled() {
+        return fireballOverlayEnabled;
+    }
+
+    public static boolean isFireballAudioCueEnabled() {
+        return fireballAudioCueEnabled;
+    }
+
+    public static double getFireballAlertRadius() {
+        return fireballAlertRadius;
+    }
+
+    public static int getFireballMaxTraceDistance() {
+        return fireballMaxTraceDistance;
     }
 
     public static boolean isModEnabled() {

@@ -65,6 +65,7 @@ public class BedwarsRuntime {
     private final LobbyTrackerService lobbyTrackerService;
     private final WorldScanService worldScanService;
     private final EnemyTrackingService enemyTrackingService;
+    private final FireballTrackingService fireballTrackingService;
     private final BedwarsOverlayRenderer overlayRenderer;
     private final BedwarsHudRenderer hudRenderer;
 
@@ -75,6 +76,7 @@ public class BedwarsRuntime {
         this.lobbyTrackerService = new LobbyTrackerService(state, matchThreatService);
         this.worldScanService = new WorldScanService(state, matchThreatService);
         this.enemyTrackingService = new EnemyTrackingService(state, matchThreatService);
+        this.fireballTrackingService = new FireballTrackingService();
         this.overlayRenderer = new BedwarsOverlayRenderer();
         this.hudRenderer = new BedwarsHudRenderer();
     }
@@ -107,6 +109,7 @@ public class BedwarsRuntime {
         state.reset();
         matchThreatService.clearBedTrackingState();
         enemyTrackingService.clearAll();
+        fireballTrackingService.clearAll();
         PlayerDatabase.getInstance().clearCurrentGame();
         AudioCueManager.clearCooldowns();
     }
@@ -230,6 +233,7 @@ public class BedwarsRuntime {
                 matchThreatService.clearBedTrackingState();
                 lobbyTrackerService.clearRecentJoins();
                 enemyTrackingService.clearAll();
+                fireballTrackingService.clearAll();
                 return;
             }
 
@@ -260,6 +264,7 @@ public class BedwarsRuntime {
                 matchThreatService.clearBedTrackingState();
                 lobbyTrackerService.clearRecentJoins();
                 enemyTrackingService.clearAll();
+                fireballTrackingService.clearAll();
                 return;
             }
 
@@ -295,6 +300,7 @@ public class BedwarsRuntime {
                 PlayerDatabase.getInstance().clearCurrentGame();
                 lobbyTrackerService.clearRecentJoins();
                 enemyTrackingService.clearAll();
+                fireballTrackingService.clearAll();
                 LOGGER.info("Left Bedwars game - unknown outcome");
             }
             state.gamePhase = GamePhase.IDLE;
@@ -480,6 +486,13 @@ public class BedwarsRuntime {
             enemyTrackingService.scanItemPickups(mc);
             enemyTrackingService.scanArmorAndHeldItems(mc, currentTime);
         }
+
+        // Fireball detection: scan for incoming EntityLargeFireball projectiles
+        if (ModConfig.isFireballDetectionEnabled()) {
+            fireballTrackingService.scanFireballs(mc);
+        } else if (!fireballTrackingService.getTracked().isEmpty()) {
+            fireballTrackingService.clearAll();
+        }
     }
 
     @SubscribeEvent
@@ -530,7 +543,7 @@ public class BedwarsRuntime {
             return;
         }
 
-        if (state.gamePhase != GamePhase.IN_GAME || !ModConfig.isGeneratorDisplayEnabled()) {
+        if (state.gamePhase != GamePhase.IN_GAME) {
             return;
         }
 
@@ -539,14 +552,20 @@ public class BedwarsRuntime {
             return;
         }
 
-        worldScanService.renderTrackedGenerators(overlayRenderer, event.partialTicks);
+        if (ModConfig.isGeneratorDisplayEnabled()) {
+            worldScanService.renderTrackedGenerators(overlayRenderer, event.partialTicks);
 
-        if (ModConfig.isInvisiblePlayerAlertsEnabled()) {
-            for (EntityPlayer player : mc.theWorld.playerEntities) {
-                if (player.isInvisible() && !player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
-                    overlayRenderer.renderInvisiblePlayerIndicator(player, event.partialTicks);
+            if (ModConfig.isInvisiblePlayerAlertsEnabled()) {
+                for (EntityPlayer player : mc.theWorld.playerEntities) {
+                    if (player.isInvisible() && !player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+                        overlayRenderer.renderInvisiblePlayerIndicator(player, event.partialTicks);
+                    }
                 }
             }
+        }
+
+        if (ModConfig.isFireballDetectionEnabled() && ModConfig.isFireballOverlayEnabled()) {
+            overlayRenderer.renderFireballTrajectories(fireballTrackingService.getTracked(), event.partialTicks);
         }
     }
 

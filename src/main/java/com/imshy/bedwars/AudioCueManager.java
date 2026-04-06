@@ -12,7 +12,8 @@ public class AudioCueManager {
 
     public enum CueType {
         INVISIBLE_NEARBY,
-        BED_DANGER
+        BED_DANGER,
+        FIREBALL_INCOMING
     }
 
     private static final Map<CueType, Long> lastCueTime = new HashMap<CueType, Long>();
@@ -68,6 +69,8 @@ public class AudioCueManager {
                 return ModConfig.isInvisibleAudioCueEnabled();
             case BED_DANGER:
                 return ModConfig.isBedDangerAudioCueEnabled();
+            case FIREBALL_INCOMING:
+                return ModConfig.isFireballAudioCueEnabled();
             default:
                 return false;
         }
@@ -79,6 +82,8 @@ public class AudioCueManager {
                 return new SoundProfile("note.pling", 1.8F);
             case BED_DANGER:
                 return new SoundProfile("note.bass", 0.8F);
+            case FIREBALL_INCOMING:
+                return new SoundProfile("fireworks.blast", 2.0F);
             default:
                 return new SoundProfile("random.click", 1.0F);
         }

@@ -13,7 +13,11 @@ import net.minecraft.util.BlockPos;
 import net.minecraft.util.EnumChatFormatting;
 
 import com.imshy.bedwars.runtime.TrackedEnemy;
+import com.imshy.bedwars.runtime.TrackedFireball;
 
+import org.lwjgl.opengl.GL11;
+
+import java.util.Collection;
 import java.util.List;
 
 public class BedwarsOverlayRenderer {
@@ -319,6 +323,115 @@ public class BedwarsOverlayRenderer {
         GlStateManager.disableBlend();
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         GlStateManager.popMatrix();
+    }
+
+    public void renderFireballTrajectories(Collection<TrackedFireball> fireballs, float partialTicks) {
+        if (fireballs == null || fireballs.isEmpty()) {
+            return;
+        }
+
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.thePlayer == null) {
+            return;
+        }
+
+        double playerX = mc.thePlayer.lastTickPosX + (mc.thePlayer.posX - mc.thePlayer.lastTickPosX) * partialTicks;
+        double playerY = mc.thePlayer.lastTickPosY + (mc.thePlayer.posY - mc.thePlayer.lastTickPosY) * partialTicks;
+        double playerZ = mc.thePlayer.lastTickPosZ + (mc.thePlayer.posZ - mc.thePlayer.lastTickPosZ) * partialTicks;
+
+        GlStateManager.pushMatrix();
+        GlStateManager.disableLighting();
+        GlStateManager.disableTexture2D();
+        GlStateManager.enableBlend();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GlStateManager.depthMask(false);
+        GlStateManager.disableDepth();
+        GL11.glLineWidth(3.0F);
+
+        Tessellator tessellator = Tessellator.getInstance();
+        WorldRenderer worldRenderer = tessellator.getWorldRenderer();
+
+        for (TrackedFireball fb : fireballs) {
+            float r;
+            float g;
+            float b;
+            if (fb.threatening) {
+                r = 1.0F;
+                g = 0.1F;
+                b = 0.1F;
+            } else {
+                r = 1.0F;
+                g = 0.85F;
+                b = 0.1F;
+            }
+
+            double fx = fb.posX - playerX;
+            double fy = fb.posY - playerY;
+            double fz = fb.posZ - playerZ;
+            double ix = fb.impactX - playerX;
+            double iy = fb.impactY - playerY;
+            double iz = fb.impactZ - playerZ;
+
+            // Trajectory line from fireball to projected impact.
+            worldRenderer.begin(GL11.GL_LINES, DefaultVertexFormats.POSITION_COLOR);
+            worldRenderer.pos(fx, fy, fz).color(r, g, b, 1.0F).endVertex();
+            worldRenderer.pos(ix, iy, iz).color(r, g, b, 1.0F).endVertex();
+            tessellator.draw();
+
+            // Wireframe impact marker (~0.5 block cube centered on impact point).
+            double half = 0.25;
+            double x1 = ix - half;
+            double y1 = iy - half;
+            double z1 = iz - half;
+            double x2 = ix + half;
+            double y2 = iy + half;
+            double z2 = iz + half;
+            drawWireframeBox(worldRenderer, tessellator, x1, y1, z1, x2, y2, z2, r, g, b, 1.0F);
+        }
+
+        GL11.glLineWidth(1.0F);
+        GlStateManager.enableDepth();
+        GlStateManager.depthMask(true);
+        GlStateManager.enableTexture2D();
+        GlStateManager.enableLighting();
+        GlStateManager.disableBlend();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        GlStateManager.popMatrix();
+    }
+
+    private static void drawWireframeBox(WorldRenderer worldRenderer, Tessellator tessellator,
+                                         double x1, double y1, double z1,
+                                         double x2, double y2, double z2,
+                                         float r, float g, float b, float a) {
+        worldRenderer.begin(GL11.GL_LINES, DefaultVertexFormats.POSITION_COLOR);
+        // Bottom square
+        worldRenderer.pos(x1, y1, z1).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x2, y1, z1).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x2, y1, z1).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x2, y1, z2).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x2, y1, z2).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x1, y1, z2).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x1, y1, z2).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x1, y1, z1).color(r, g, b, a).endVertex();
+        // Top square
+        worldRenderer.pos(x1, y2, z1).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x2, y2, z1).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x2, y2, z1).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x2, y2, z2).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x2, y2, z2).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x1, y2, z2).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x1, y2, z2).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x1, y2, z1).color(r, g, b, a).endVertex();
+        // Vertical edges
+        worldRenderer.pos(x1, y1, z1).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x1, y2, z1).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x2, y1, z1).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x2, y2, z1).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x2, y1, z2).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x2, y2, z2).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x1, y1, z2).color(r, g, b, a).endVertex();
+        worldRenderer.pos(x1, y2, z2).color(r, g, b, a).endVertex();
+        tessellator.draw();
     }
 
     private static String toRoman(int level) {
