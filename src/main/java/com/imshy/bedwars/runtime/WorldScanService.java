@@ -26,6 +26,11 @@ import java.util.Set;
 import java.util.HashSet;
 
 public class WorldScanService {
+    private static final double GENERATOR_RESET_DISTANCE_SQ = 25.0D; // 5 blocks
+    private static final long MIN_VALID_INTERVAL_MS = 250L;
+    private static final long MAX_VALID_INTERVAL_MS = 120000L;
+    private static final int MIN_PREDICTION_BASELINE = 2;
+
     private static final Map<String, String> GAME_MODE_COMMANDS = new HashMap<String, String>();
     private static final String[] AUTOPLAY_MODE_SUGGESTIONS = {
             "ones", "twos", "threes", "fours", "stop", "requeue"
@@ -198,7 +203,8 @@ public class WorldScanService {
     public void scanForGenerators(Minecraft mc) {
         int scanRange = ModConfig.getGeneratorScanRange();
         BlockPos playerPos = mc.thePlayer.getPosition();
-        Set<BlockPos> visibleGenerators = new HashSet<BlockPos>();
+        long now = System.currentTimeMillis();
+        Set<BlockPos> observedGenerators = new HashSet<BlockPos>();
 
         for (int x = -scanRange; x <= scanRange; x++) {
             for (int y = -20; y <= 20; y++) {
@@ -218,7 +224,7 @@ public class WorldScanService {
                     boolean isEmerald = (block == Blocks.emerald_block);
 
                     if (isDiamond || isEmerald) {
-                        visibleGenerators.add(checkPos);
+                        observedGenerators.add(checkPos);
 
                         GeneratorEntry existing = state.trackedGenerators.get(checkPos);
                         if (existing == null) {
@@ -227,9 +233,7 @@ public class WorldScanService {
                         }
 
                         GeneratorResourceScan scan = scanGeneratorResources(mc, checkPos, isDiamond);
-                        existing.resourceCount = scan.resourceCount;
-                        existing.hasDesignatedIngotOnTop = scan.hasDesignatedIngotOnTop;
-                        existing.lastUpdate = System.currentTimeMillis();
+                        updateGeneratorFromObservedScan(existing, scan.resourceCount, scan.hasDesignatedIngotOnTop, now);
                     }
                 }
             }
@@ -238,11 +242,113 @@ public class WorldScanService {
         Iterator<Map.Entry<BlockPos, GeneratorEntry>> iterator = state.trackedGenerators.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<BlockPos, GeneratorEntry> entry = iterator.next();
-            if (playerPos.distanceSq(entry.getKey()) > scanRange * scanRange
-                    || !visibleGenerators.contains(entry.getKey())) {
+            GeneratorEntry generator = entry.getValue();
+            BlockPos generatorPos = entry.getKey();
+
+            if (playerPos.distanceSq(generatorPos) > scanRange * scanRange) {
                 iterator.remove();
+                continue;
+            }
+
+            if (isAnyPlayerNearGenerator(mc, generatorPos)) {
+                resetGeneratorCount(generator, now);
+                continue;
+            }
+
+            if (!observedGenerators.contains(generatorPos)) {
+                predictGeneratorCountWhenUnobserved(generator, now);
             }
         }
+    }
+
+    private void updateGeneratorFromObservedScan(GeneratorEntry generator, int observedCount,
+            boolean hasDesignatedIngotOnTop, long now) {
+        int previousObservedCount = generator.lastObservedCount;
+        long previousIncrementTimestamp = generator.lastIncrementTimestampMs;
+
+        if (observedCount > previousObservedCount) {
+            if (previousIncrementTimestamp > 0L) {
+                long observedInterval = now - previousIncrementTimestamp;
+                if (observedInterval >= MIN_VALID_INTERVAL_MS && observedInterval <= MAX_VALID_INTERVAL_MS) {
+                    if (generator.estimatedGenerationIntervalMs <= 0L) {
+                        generator.estimatedGenerationIntervalMs = observedInterval;
+                    } else {
+                        generator.estimatedGenerationIntervalMs = (generator.estimatedGenerationIntervalMs * 2L + observedInterval) / 3L;
+                    }
+                }
+            }
+            generator.lastIncrementTimestampMs = now;
+        } else if (observedCount < previousObservedCount) {
+            generator.lastIncrementTimestampMs = 0L;
+        }
+
+        generator.resourceCount = observedCount;
+        generator.hasDesignatedIngotOnTop = hasDesignatedIngotOnTop;
+        generator.lastObservedCount = observedCount;
+        generator.lastObservedTimestampMs = now;
+        generator.lastPredictionTimestampMs = now;
+        generator.lastUpdate = now;
+        if (observedCount >= MIN_PREDICTION_BASELINE) {
+            generator.hasPredictionBaseline = true;
+        }
+    }
+
+    private void predictGeneratorCountWhenUnobserved(GeneratorEntry generator, long now) {
+        if (!generator.hasPredictionBaseline || generator.estimatedGenerationIntervalMs <= 0L) {
+            return;
+        }
+
+        if (generator.lastPredictionTimestampMs <= 0L) {
+            generator.lastPredictionTimestampMs = now;
+            return;
+        }
+
+        if (generator.resourceCount < MIN_PREDICTION_BASELINE) {
+            generator.resourceCount = MIN_PREDICTION_BASELINE;
+        }
+
+        long elapsed = now - generator.lastPredictionTimestampMs;
+        if (elapsed < generator.estimatedGenerationIntervalMs) {
+            return;
+        }
+
+        int generated = (int) (elapsed / generator.estimatedGenerationIntervalMs);
+        if (generated <= 0) {
+            return;
+        }
+
+        generator.resourceCount += generated;
+        generator.lastPredictionTimestampMs += generated * generator.estimatedGenerationIntervalMs;
+        generator.lastUpdate = now;
+    }
+
+    private void resetGeneratorCount(GeneratorEntry generator, long now) {
+        generator.resourceCount = 0;
+        generator.hasDesignatedIngotOnTop = false;
+        generator.lastObservedCount = 0;
+        generator.lastPredictionTimestampMs = now;
+        generator.hasPredictionBaseline = false;
+        generator.lastUpdate = now;
+    }
+
+    private boolean isAnyPlayerNearGenerator(Minecraft mc, BlockPos generatorPos) {
+        double centerX = generatorPos.getX() + 0.5D;
+        double centerY = generatorPos.getY() + 1.0D;
+        double centerZ = generatorPos.getZ() + 0.5D;
+
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            if (player == null || player.isDead) {
+                continue;
+            }
+            double dx = player.posX - centerX;
+            double dy = player.posY - centerY;
+            double dz = player.posZ - centerZ;
+            double distanceSq = dx * dx + dy * dy + dz * dz;
+            if (distanceSq <= GENERATOR_RESET_DISTANCE_SQ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public void performAutoplayCheck(Minecraft mc) {
@@ -369,6 +475,12 @@ public class WorldScanService {
         int resourceCount;
         boolean hasDesignatedIngotOnTop;
         long lastUpdate;
+        int lastObservedCount;
+        long lastObservedTimestampMs;
+        long lastIncrementTimestampMs;
+        long estimatedGenerationIntervalMs;
+        long lastPredictionTimestampMs;
+        boolean hasPredictionBaseline;
 
         GeneratorEntry(BlockPos pos, boolean diamond) {
             this.position = pos;
@@ -376,6 +488,12 @@ public class WorldScanService {
             this.resourceCount = 0;
             this.hasDesignatedIngotOnTop = false;
             this.lastUpdate = System.currentTimeMillis();
+            this.lastObservedCount = 0;
+            this.lastObservedTimestampMs = 0L;
+            this.lastIncrementTimestampMs = 0L;
+            this.estimatedGenerationIntervalMs = 0L;
+            this.lastPredictionTimestampMs = 0L;
+            this.hasPredictionBaseline = false;
         }
     }
 
