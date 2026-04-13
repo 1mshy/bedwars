@@ -88,6 +88,8 @@ public class ModConfig {
     private static boolean hudResourceEnabled = true;
     private static int resourceAlertIronThreshold = 40;
     private static int resourceAlertGoldThreshold = 40;
+    private static boolean threatProximityGlowEnabled = true;
+    private static int threatProximityRange = 20;
     private static String hudPosition = "TOP_LEFT";
     private static double hudScale = 1.0;
     private static double hudBackgroundOpacity = 0.4;
@@ -477,6 +479,21 @@ public class ModConfig {
                     1, 64);
             resourceAlertGoldThreshold = resourceAlertGoldProp.getInt();
 
+            Property threatProximityGlowProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "threatProximityGlowEnabled",
+                    true,
+                    "Pulse a red border on the HUD when an EXTREME threat player is within range");
+            threatProximityGlowEnabled = threatProximityGlowProp.getBoolean();
+
+            Property threatProximityRangeProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "threatProximityRange",
+                    20,
+                    "Distance (blocks) for the EXTREME threat proximity glow to activate",
+                    5, 50);
+            threatProximityRange = threatProximityRangeProp.getInt();
+
             // Lobby bait messages
             Property lobbyBaitProp = config.get(
                     Configuration.CATEGORY_GENERAL,
@@ -806,6 +823,14 @@ public class ModConfig {
 
     public static int getResourceAlertGoldThreshold() {
         return resourceAlertGoldThreshold;
+    }
+
+    public static boolean isThreatProximityGlowEnabled() {
+        return threatProximityGlowEnabled;
+    }
+
+    public static int getThreatProximityRange() {
+        return threatProximityRange;
     }
 
     public static String getHudPosition() {

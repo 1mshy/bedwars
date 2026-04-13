@@ -101,6 +101,14 @@ public class BedwarsHudRenderer {
         int bgColor = (bgAlpha << 24);
         Gui.drawRect(originX, originY, originX + panelWidth, originY + panelHeight, bgColor);
 
+        if (ModConfig.isThreatProximityGlowEnabled() && isExtremeThreatNearby(mc)) {
+            double pulse = (Math.sin(System.currentTimeMillis() / 300.0) + 1.0) / 2.0;
+            int tintAlpha = (int) (40 + 30 * pulse);
+            Gui.drawRect(originX, originY, originX + panelWidth, originY + panelHeight,
+                    (tintAlpha << 24) | 0xFF0000);
+            drawThreatBorder(originX, originY, panelWidth, panelHeight, pulse);
+        }
+
         int drawX = originX + PADDING;
         int drawY = originY + PADDING;
         for (HudLine line : lines) {
@@ -429,6 +437,37 @@ public class BedwarsHudRenderer {
             lines.add(HudLine.playerLine(line, entry.skin));
         }
         return true;
+    }
+
+    private boolean isExtremeThreatNearby(Minecraft mc) {
+        if (mc.theWorld == null || mc.thePlayer == null) {
+            return false;
+        }
+        double rangeSq = ModConfig.getThreatProximityRange() * ModConfig.getThreatProximityRange();
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            if (player == mc.thePlayer) continue;
+            BedwarsStats stats = HypixelAPI.getCachedStats(player.getName());
+            if (stats == null || !stats.isLoaded()) continue;
+            if (stats.getThreatLevel() == BedwarsStats.ThreatLevel.EXTREME
+                    && mc.thePlayer.getDistanceSqToEntity(player) <= rangeSq) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void drawThreatBorder(int originX, int originY, int panelWidth, int panelHeight, double pulse) {
+        int alpha = (int) (100 + 155 * pulse);
+        int borderColor = (alpha << 24) | 0xFF0000;
+        int t = 2;
+        // Top
+        Gui.drawRect(originX, originY, originX + panelWidth, originY + t, borderColor);
+        // Bottom
+        Gui.drawRect(originX, originY + panelHeight - t, originX + panelWidth, originY + panelHeight, borderColor);
+        // Left
+        Gui.drawRect(originX, originY, originX + t, originY + panelHeight, borderColor);
+        // Right
+        Gui.drawRect(originX + panelWidth - t, originY, originX + panelWidth, originY + panelHeight, borderColor);
     }
 
     private static EntityPlayer findWorldPlayer(Minecraft mc, String name) {
