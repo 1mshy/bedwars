@@ -20,6 +20,9 @@ import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.init.Blocks;
+import net.minecraft.init.Items;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.scoreboard.ScorePlayerTeam;
 import net.minecraft.scoreboard.Team;
@@ -165,6 +168,14 @@ public class BedwarsHudRenderer {
             addedSection = addedSection || added;
         }
 
+        if (ModConfig.isHudResourceEnabled()) {
+            if (addedSection) {
+                lines.add(HudLine.gap());
+            }
+            boolean added = addResourceSection(lines, mc);
+            addedSection = addedSection || added;
+        }
+
         if (ModConfig.isHudTeamSummaryEnabled()) {
             if (addedSection) {
                 lines.add(HudLine.gap());
@@ -243,6 +254,67 @@ public class BedwarsHudRenderer {
               .append(EnumChatFormatting.WHITE).append(summary.totalEmeralds);
         }
         lines.add(HudLine.text(sb.toString()));
+        return true;
+    }
+
+    private boolean addResourceSection(List<HudLine> lines, Minecraft mc) {
+        if (mc.thePlayer == null) {
+            return false;
+        }
+
+        int iron = 0, gold = 0, diamond = 0, emerald = 0;
+        ItemStack[] inv = mc.thePlayer.inventory.mainInventory;
+        for (ItemStack stack : inv) {
+            if (stack == null) continue;
+            Item item = stack.getItem();
+            if (item == Items.iron_ingot) iron += stack.stackSize;
+            else if (item == Items.gold_ingot) gold += stack.stackSize;
+            else if (item == Items.diamond) diamond += stack.stackSize;
+            else if (item == Items.emerald) emerald += stack.stackSize;
+        }
+
+        if (iron == 0 && gold == 0 && diamond == 0 && emerald == 0) {
+            return false;
+        }
+
+        lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "RESOURCES"));
+
+        StringBuilder rsb = new StringBuilder();
+        rsb.append(EnumChatFormatting.WHITE).append("Iron: ").append(iron);
+        rsb.append(EnumChatFormatting.GRAY).append("  ");
+        rsb.append(EnumChatFormatting.GOLD).append("Gold: ").append(gold);
+        if (diamond > 0) {
+            rsb.append(EnumChatFormatting.GRAY).append("  ");
+            rsb.append(EnumChatFormatting.AQUA).append("\u25C6 ").append(diamond);
+        }
+        if (emerald > 0) {
+            rsb.append(EnumChatFormatting.GRAY).append("  ");
+            rsb.append(EnumChatFormatting.GREEN).append("\u25C6 ").append(emerald);
+        }
+        lines.add(HudLine.text(rsb.toString()));
+
+        // "Ready to Buy" alerts with flashing icons
+        boolean flashOn = ((System.currentTimeMillis() / 500) % 2) == 0;
+        List<ItemStack> alertItems = new ArrayList<ItemStack>();
+        StringBuilder alertText = new StringBuilder();
+
+        if (iron >= ModConfig.getResourceAlertIronThreshold()) {
+            if (flashOn) {
+                alertItems.add(new ItemStack(Blocks.tnt));
+            }
+            alertText.append(EnumChatFormatting.RED).append("TNT Ready! ");
+        }
+        if (gold >= ModConfig.getResourceAlertGoldThreshold()) {
+            if (flashOn) {
+                alertItems.add(new ItemStack(Items.fire_charge));
+            }
+            alertText.append(EnumChatFormatting.GOLD).append("Fireball Ready!");
+        }
+
+        if (alertText.length() > 0) {
+            lines.add(HudLine.itemsLine(alertText.toString(), alertItems));
+        }
+
         return true;
     }
 

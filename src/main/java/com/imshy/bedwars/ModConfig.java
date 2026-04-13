@@ -85,6 +85,9 @@ public class ModConfig {
     private static boolean hudGeneratorCountsEnabled = true;
     private static boolean hudTeamSummaryEnabled = true;
     private static boolean hudChatDetectedEnabled = true;
+    private static boolean hudResourceEnabled = true;
+    private static int resourceAlertIronThreshold = 40;
+    private static int resourceAlertGoldThreshold = 40;
     private static String hudPosition = "TOP_LEFT";
     private static double hudScale = 1.0;
     private static double hudBackgroundOpacity = 0.4;
@@ -451,6 +454,29 @@ public class ModConfig {
                     "Show stats of players detected via in-game chat on the HUD");
             hudChatDetectedEnabled = hudChatDetectedProp.getBoolean();
 
+            Property hudResourceProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "hudResourceEnabled",
+                    true,
+                    "Show your iron/gold/diamond/emerald inventory counts on the HUD");
+            hudResourceEnabled = hudResourceProp.getBoolean();
+
+            Property resourceAlertIronProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "resourceAlertIronThreshold",
+                    40,
+                    "Iron count to trigger TNT ready-to-buy alert",
+                    1, 64);
+            resourceAlertIronThreshold = resourceAlertIronProp.getInt();
+
+            Property resourceAlertGoldProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "resourceAlertGoldThreshold",
+                    40,
+                    "Gold count to trigger Fireball ready-to-buy alert",
+                    1, 64);
+            resourceAlertGoldThreshold = resourceAlertGoldProp.getInt();
+
             // Lobby bait messages
             Property lobbyBaitProp = config.get(
                     Configuration.CATEGORY_GENERAL,
@@ -768,6 +794,18 @@ public class ModConfig {
 
     public static boolean isHudChatDetectedEnabled() {
         return hudChatDetectedEnabled;
+    }
+
+    public static boolean isHudResourceEnabled() {
+        return hudResourceEnabled;
+    }
+
+    public static int getResourceAlertIronThreshold() {
+        return resourceAlertIronThreshold;
+    }
+
+    public static int getResourceAlertGoldThreshold() {
+        return resourceAlertGoldThreshold;
     }
 
     public static String getHudPosition() {
