@@ -111,11 +111,20 @@ public class HypixelAPI {
             try {
                 // Step 1: Get UUID from Mojang
                 LOGGER.debug("Looking up UUID for: {}", playerName);
-                String uuid = getUUID(playerName);
-                if (uuid == null) {
-                    callback.onError("Could not get UUID for " + playerName + " - player may not exist");
+                UuidLookupResult uuidResult = resolveUUID(playerName);
+                if (uuidResult.notFound) {
+                    // Mojang returned HTTP 404 — the name does not resolve to any
+                    // Minecraft account, which is the signature of a Hypixel nick.
+                    BedwarsStats nickedStats = BedwarsStats.createNicked(playerName);
+                    statsCache.put(playerName.toLowerCase(), new CachedStats(nickedStats));
+                    callback.onStatsLoaded(nickedStats);
                     return;
                 }
+                if (uuidResult.uuid == null) {
+                    callback.onError("Could not get UUID for " + playerName + " - lookup failed");
+                    return;
+                }
+                String uuid = uuidResult.uuid;
 
                 // Step 2: Fetch stats from Hypixel
                 LOGGER.debug("Fetching Hypixel stats for UUID: {}", uuid);
@@ -195,12 +204,28 @@ public class HypixelAPI {
     }
 
     /**
-     * Get UUID from Mojang API
+     * Result of a Mojang UUID lookup. {@code notFound == true} means Mojang
+     * explicitly reported the name as unknown (HTTP 404) — a definitive nick
+     * signal. Other failures (timeouts, parse errors) leave {@code notFound}
+     * false so transient errors do not get mistaken for nicks.
      */
-    private static String getUUID(String playerName) {
+    private static class UuidLookupResult {
+        final String uuid;
+        final boolean notFound;
+
+        UuidLookupResult(String uuid, boolean notFound) {
+            this.uuid = uuid;
+            this.notFound = notFound;
+        }
+    }
+
+    /**
+     * Get UUID from Mojang API, distinguishing HTTP 404 from other failures.
+     */
+    private static UuidLookupResult resolveUUID(String playerName) {
         // Check cache
         if (uuidCache.containsKey(playerName.toLowerCase())) {
-            return uuidCache.get(playerName.toLowerCase());
+            return new UuidLookupResult(uuidCache.get(playerName.toLowerCase()), false);
         }
 
         try {
@@ -211,8 +236,11 @@ public class HypixelAPI {
             conn.setReadTimeout(5000);
 
             int responseCode = conn.getResponseCode();
+            if (responseCode == 404) {
+                return new UuidLookupResult(null, true);
+            }
             if (responseCode != 200) {
-                return null;
+                return new UuidLookupResult(null, false);
             }
 
             BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
@@ -228,7 +256,7 @@ public class HypixelAPI {
             JsonObject jsonObj = new JsonParser().parse(json).getAsJsonObject();
 
             if (!jsonObj.has("id")) {
-                return null;
+                return new UuidLookupResult(null, false);
             }
 
             String uuid = jsonObj.get("id").getAsString();
@@ -236,11 +264,11 @@ public class HypixelAPI {
             uuid = formatUUID(uuid);
             uuidCache.put(playerName.toLowerCase(), uuid);
 
-            return uuid;
+            return new UuidLookupResult(uuid, false);
 
         } catch (Exception e) {
             LOGGER.warn("Error getting UUID for {}: {}", playerName, e.getMessage());
-            return null;
+            return new UuidLookupResult(null, false);
         }
     }
 

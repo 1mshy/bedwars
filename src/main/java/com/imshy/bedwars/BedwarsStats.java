@@ -10,7 +10,8 @@ public class BedwarsStats {
         LOW, // Beginner/casual player
         MEDIUM, // Average player
         HIGH, // Skilled player
-        EXTREME // Very dangerous player
+        EXTREME, // Very dangerous player
+        NICKED // Player is using a Hypixel nick (alias) — real identity hidden
     }
 
     private final String playerName;
@@ -31,10 +32,22 @@ public class BedwarsStats {
     private boolean loaded = false;
     private boolean error = false;
     private String errorMessage = null;
+    private boolean nicked = false;
 
     public BedwarsStats(String playerName, String uuid) {
         this.playerName = playerName;
         this.uuid = uuid;
+    }
+
+    /**
+     * Build a stats object representing a nicked (alias) player for whom no real
+     * identity could be resolved — e.g. Mojang returned HTTP 404 for the name.
+     */
+    public static BedwarsStats createNicked(String playerName) {
+        BedwarsStats stats = new BedwarsStats(playerName, "");
+        stats.loaded = true;
+        stats.nicked = true;
+        return stats;
     }
 
     /**
@@ -49,10 +62,21 @@ public class BedwarsStats {
                 return;
             }
 
+            // Hypixel returns "player":null when the account has never logged in —
+            // a strong nick signal.
+            if (jsonResponse.contains("\"player\":null")) {
+                loaded = true;
+                nicked = true;
+                return;
+            }
+
             // Check if player has Bedwars stats
             if (!jsonResponse.contains("\"Bedwars\"")) {
-                // Player exists but hasn't played Bedwars
+                // Player exists but hasn't played Bedwars — treat as nicked since
+                // an in-game opponent with no Bedwars history is almost certainly
+                // a nick.
                 loaded = true;
+                nicked = true;
                 return;
             }
 
@@ -88,6 +112,13 @@ public class BedwarsStats {
                     : (finalKills > 0 ? Double.MAX_VALUE : 0.0);
             wlr = losses > 0 ? (double) wins / losses
                     : (wins > 0 ? Double.MAX_VALUE : 0.0);
+
+            // All core counters zero after a successful parse => Bedwars section
+            // exists but is empty. That pattern matches a nicked account.
+            if (stars == 0 && finalKills == 0 && finalDeaths == 0
+                    && wins == 0 && losses == 0 && bedsBroken == 0) {
+                nicked = true;
+            }
 
             loaded = true;
 
@@ -208,6 +239,12 @@ public class BedwarsStats {
         if (error || !loaded)
             return ThreatLevel.UNKNOWN;
 
+        // Nicked players hide their skill; surface that before skill-based tiers.
+        // The renderer/config gate decides whether to act on this.
+        if (nicked && ModConfig.isNickDetectionEnabled()) {
+            return ThreatLevel.NICKED;
+        }
+
         // EXTREME: 500+ stars OR 6+ FKDR
         if (stars >= 500 || fkdr >= 6.0) {
             return ThreatLevel.EXTREME;
@@ -239,6 +276,8 @@ public class BedwarsStats {
                 return "\u00A7e"; // Yellow
             case LOW:
                 return "\u00A7a"; // Green
+            case NICKED:
+                return "\u00A7d"; // Light Purple
             default:
                 return "\u00A77"; // Gray
         }
@@ -274,9 +313,16 @@ public class BedwarsStats {
         if (!loaded) {
             return "\u00A77[Loading...]";
         }
+        if (getThreatLevel() == ThreatLevel.NICKED) {
+            return "\u00A7d[NICK]";
+        }
 
         String color = getThreatColor();
         return color + "[" + stars + "\u2B50] " + formatRatio(fkdr) + " FKDR";
+    }
+
+    public boolean isNicked() {
+        return nicked;
     }
 
     // Getters

@@ -522,9 +522,17 @@ public class BedwarsRuntime {
             return;
         }
 
-        String threatText = stats.getThreatColor() + "[" + threat.name() + "] " +
-                EnumChatFormatting.WHITE + stats.getStars() + "⭐ " +
-                EnumChatFormatting.YELLOW + BedwarsStats.formatRatioShort(stats.getFkdr()) + " FKDR";
+        String threatText;
+        if (threat == BedwarsStats.ThreatLevel.NICKED) {
+            if (state.gamePhase == GamePhase.IDLE || !ModConfig.isNickDetectionEnabled()) {
+                return;
+            }
+            threatText = stats.getThreatColor() + "[NICK]";
+        } else {
+            threatText = stats.getThreatColor() + "[" + threat.name() + "] " +
+                    EnumChatFormatting.WHITE + stats.getStars() + "⭐ " +
+                    EnumChatFormatting.YELLOW + BedwarsStats.formatRatioShort(stats.getFkdr()) + " FKDR";
+        }
 
         overlayRenderer.renderThreatLabel(player, threatText, event.x, event.y, event.z);
 

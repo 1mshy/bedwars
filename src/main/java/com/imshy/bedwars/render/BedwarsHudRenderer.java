@@ -232,12 +232,17 @@ public class BedwarsHudRenderer {
         String label = TeamDangerAnalyzer.averageThreatLabel(highest.getAverageThreatScore());
         String color = TeamDangerAnalyzer.dangerLabelColor(label);
 
+        String nickSuffix = highest.nickedPlayers > 0
+                ? EnumChatFormatting.LIGHT_PURPLE + " [" + highest.nickedPlayers + " NICK]"
+                : "";
+
         lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "HIGHEST THREAT"));
         lines.add(HudLine.text(highest.teamColor + highest.teamName
                 + EnumChatFormatting.GRAY + " - "
                 + color + label
                 + EnumChatFormatting.GRAY + " ("
-                + highest.playersWithKnownThreat + "/" + highest.totalPlayers + " known)"));
+                + highest.playersWithKnownThreat + "/" + highest.totalPlayers + " known)"
+                + nickSuffix));
         return true;
     }
 

@@ -37,6 +37,7 @@ public class ModConfig {
     private static int bedScanRange = 30; // blocks
     private static int bedScanRetrySeconds = 12; // seconds
     private static boolean teamDangerSummaryEnabled = true;
+    private static boolean nickDetectionEnabled = true;
     private static boolean audioAlertsEnabled = true;
     private static boolean invisibleAudioCueEnabled = true;
     private static boolean bedDangerAudioCueEnabled = true;
@@ -242,6 +243,13 @@ public class ModConfig {
                     true,
                     "Show per-team average danger summaries in HUD and /bw info");
             teamDangerSummaryEnabled = teamDangerSummaryProp.getBoolean();
+
+            Property nickDetectionProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "nickDetectionEnabled",
+                    true,
+                    "Flag Hypixel-nicked players (no Mojang account, empty Bedwars profile) with a [NICK] tag");
+            nickDetectionEnabled = nickDetectionProp.getBoolean();
 
             // Autoplay settings
             Property autoplayMaxThreatProp = config.get(
@@ -688,6 +696,10 @@ public class ModConfig {
 
     public static boolean isTeamDangerSummaryEnabled() {
         return teamDangerSummaryEnabled;
+    }
+
+    public static boolean isNickDetectionEnabled() {
+        return nickDetectionEnabled;
     }
 
     public static boolean isAudioAlertsEnabled() {

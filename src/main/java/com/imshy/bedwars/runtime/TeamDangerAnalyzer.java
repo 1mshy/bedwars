@@ -99,6 +99,10 @@ public class TeamDangerAnalyzer {
                 continue;
             }
 
+            if (stats.isNicked()) {
+                summary.nickedPlayers++;
+            }
+
             int stars = stats.getStars();
             if (stars > 0) {
                 summary.playersWithKnownStars++;
@@ -172,6 +176,10 @@ public class TeamDangerAnalyzer {
                 continue;
             }
 
+            if (stats.isNicked()) {
+                summary.nickedPlayers++;
+            }
+
             int stars = stats.getStars();
             if (stars > 0) {
                 summary.playersWithKnownStars++;
@@ -217,12 +225,17 @@ public class TeamDangerAnalyzer {
                 ? EnumChatFormatting.AQUA + " (You)"
                 : "";
 
+        String nickSuffix = summary.nickedPlayers > 0
+                ? EnumChatFormatting.LIGHT_PURPLE + " [" + summary.nickedPlayers + " NICK]"
+                : "";
+
         return summary.teamColor + summary.teamName +
                 ownTeamSuffix +
                 EnumChatFormatting.GRAY + " - " +
                 dangerColor + "Avg " + dangerLabel +
                 EnumChatFormatting.GRAY + " (" +
-                summary.playersWithKnownThreat + "/" + summary.totalPlayers + " known)";
+                summary.playersWithKnownThreat + "/" + summary.totalPlayers + " known)" +
+                nickSuffix;
     }
 
     private static String getTeamDisplayName(ScorePlayerTeam team) {
@@ -257,6 +270,9 @@ public class TeamDangerAnalyzer {
                 return 3.0;
             case EXTREME:
                 return 4.0;
+            case NICKED:
+                // Nicked skill is unknown but assumed dangerous — score alongside HIGH.
+                return 3.0;
             default:
                 return 0.0;
         }
@@ -300,6 +316,7 @@ public class TeamDangerAnalyzer {
         public double totalThreatScore;
         public int totalStars;
         public int playersWithKnownStars;
+        public int nickedPlayers;
 
         TeamDangerEntry(String teamName, String teamColor, boolean isOwnTeam) {
             this.teamName = teamName;
