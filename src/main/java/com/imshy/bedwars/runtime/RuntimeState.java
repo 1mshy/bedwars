@@ -71,6 +71,9 @@ final class RuntimeState {
     int afkMovePhase = 0; // 0=idle, 1=moving left, 2=moving right
     int afkMoveTicks = 0;
 
+    // --- Match summary state ---
+    MatchSummary lastMatchSummary = null;
+
     // --- Cross-phase state ---
     boolean autoplayEnabled = false;
     String autoplayMode = "ones";
@@ -136,6 +139,9 @@ final class RuntimeState {
         lastArmorHeldItemScan = 0;
 
         // AFK state (intentionally NOT reset — user toggles manually)
+
+        // Match summary state
+        lastMatchSummary = null;
 
         // Cross-phase state
         autoplayEnabled = false;

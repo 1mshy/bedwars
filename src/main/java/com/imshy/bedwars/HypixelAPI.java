@@ -10,10 +10,6 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * Utility class for Hypixel API communication
@@ -352,23 +348,6 @@ public class HypixelAPI {
             lastFetchError = e.getMessage();
             return null;
         }
-    }
-
-    /**
-     * Extract string value from JSON
-     */
-    private static String extractString(String json, String key) {
-        String searchKey = "\"" + key + "\":\"";
-        int keyIndex = json.indexOf(searchKey);
-        if (keyIndex == -1)
-            return null;
-
-        int valueStart = keyIndex + searchKey.length();
-        int valueEnd = json.indexOf("\"", valueStart);
-        if (valueEnd == -1)
-            return null;
-
-        return json.substring(valueStart, valueEnd);
     }
 
     /**

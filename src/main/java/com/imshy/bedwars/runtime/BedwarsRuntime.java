@@ -9,6 +9,8 @@ import com.imshy.bedwars.ModConfig;
 import com.imshy.bedwars.PlayerDatabase;
 import com.imshy.bedwars.render.BedwarsHudRenderer;
 import com.imshy.bedwars.render.BedwarsOverlayRenderer;
+import com.imshy.bedwars.render.LastSeenArrowRenderer;
+import com.imshy.bedwars.render.MatchSummaryRenderer;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.ScaledResolution;
@@ -68,6 +70,8 @@ public class BedwarsRuntime {
     private final FireballTrackingService fireballTrackingService;
     private final BedwarsOverlayRenderer overlayRenderer;
     private final BedwarsHudRenderer hudRenderer;
+    private final LastSeenArrowRenderer lastSeenArrowRenderer;
+    private final MatchSummaryRenderer matchSummaryRenderer;
 
     public BedwarsRuntime() {
         this.state = new RuntimeState();
@@ -79,6 +83,8 @@ public class BedwarsRuntime {
         this.fireballTrackingService = new FireballTrackingService();
         this.overlayRenderer = new BedwarsOverlayRenderer();
         this.hudRenderer = new BedwarsHudRenderer();
+        this.lastSeenArrowRenderer = new LastSeenArrowRenderer();
+        this.matchSummaryRenderer = new MatchSummaryRenderer();
     }
 
     public boolean isInMatch() {
@@ -223,6 +229,7 @@ public class BedwarsRuntime {
                     (message.contains(HypixelMessages.WIN_WINNER) && message.contains(playerName))) {
 
                 LOGGER.info("WIN detected");
+                captureMatchSummary(MatchSummary.Outcome.WIN);
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.WIN);
                 PlayerDatabase.getInstance().clearCurrentGame();
                 state.gamePhase = GamePhase.IDLE;
@@ -244,6 +251,7 @@ public class BedwarsRuntime {
                     message.trim().startsWith(HypixelMessages.LOSS_1ST_KILLER)) {
 
                 LOGGER.info("LOSS detected");
+                captureMatchSummary(MatchSummary.Outcome.LOSS);
                 PlayerDatabase db = PlayerDatabase.getInstance();
                 db.recordGameEnd(PlayerDatabase.GameOutcome.LOSS);
 
@@ -295,6 +303,7 @@ public class BedwarsRuntime {
             state.lobbyBaitActive = false;
             if (state.gamePhase == GamePhase.IN_GAME) {
                 state.disconnectedFromGame = false;
+                captureMatchSummary(MatchSummary.Outcome.UNKNOWN);
                 matchThreatService.clearBedTrackingState();
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.UNKNOWN);
                 PlayerDatabase.getInstance().clearCurrentGame();
@@ -376,7 +385,38 @@ public class BedwarsRuntime {
                 ScaledResolution resolution = new ScaledResolution(mc);
                 hudRenderer.render(resolution, mc, teamDangerAnalyzer, worldScanService, enemyTrackingService,
                         state.matchStartTime, state.chatDetectedPlayers);
+
+                if (state.gamePhase == GamePhase.IN_GAME) {
+                    lastSeenArrowRenderer.render(resolution, mc, enemyTrackingService);
+                }
             }
+
+            if (state.lastMatchSummary != null && ModConfig.isMatchSummaryCardEnabled()) {
+                long ttlMs = ModConfig.getMatchSummaryCardDurationSeconds() * 1000L;
+                if (state.lastMatchSummary.isExpired(ttlMs)) {
+                    state.lastMatchSummary = null;
+                } else {
+                    ScaledResolution resolution = new ScaledResolution(mc);
+                    matchSummaryRenderer.render(resolution, mc, state.lastMatchSummary);
+                }
+            }
+        }
+    }
+
+    /**
+     * Snapshot the match into a {@link MatchSummary} so the post-game card has
+     * stable data even after the player db's current-game set is cleared.
+     */
+    private void captureMatchSummary(MatchSummary.Outcome outcome) {
+        if (!ModConfig.isMatchSummaryCardEnabled()) {
+            return;
+        }
+        try {
+            java.util.Set<String> facedPlayers = PlayerDatabase.getInstance().getCurrentGamePlayersSnapshot();
+            state.lastMatchSummary = MatchSummary.build(outcome, state.matchStartTime,
+                    state.lastDetectedMapName, facedPlayers);
+        } catch (Exception e) {
+            LOGGER.warn("Failed to build match summary: {}", e.getMessage());
         }
     }
 
@@ -529,9 +569,31 @@ public class BedwarsRuntime {
             }
             threatText = stats.getThreatColor() + "[NICK]";
         } else {
-            threatText = stats.getThreatColor() + "[" + threat.name() + "] " +
-                    EnumChatFormatting.WHITE + stats.getStars() + "⭐ " +
-                    EnumChatFormatting.YELLOW + BedwarsStats.formatRatioShort(stats.getFkdr()) + " FKDR";
+            StringBuilder sb = new StringBuilder();
+            sb.append(stats.getThreatColor()).append("[").append(threat.name()).append("] ")
+              .append(EnumChatFormatting.WHITE).append(stats.getStars()).append("⭐ ")
+              .append(EnumChatFormatting.YELLOW).append(BedwarsStats.formatRatioShort(stats.getFkdr()))
+              .append(" FKDR");
+
+            if (ModConfig.isRecentFkdrNametagEnabled()
+                    && stats.getRecentWindow() != BedwarsStats.RecentWindow.NONE) {
+                double delta = stats.getRecentFkdrDelta();
+                String arrow;
+                EnumChatFormatting arrowColor;
+                if (delta >= 0.10) {
+                    arrow = "\u2191"; arrowColor = EnumChatFormatting.RED;
+                } else if (delta <= -0.10) {
+                    arrow = "\u2193"; arrowColor = EnumChatFormatting.GREEN;
+                } else {
+                    arrow = "\u2192"; arrowColor = EnumChatFormatting.GRAY;
+                }
+                sb.append(EnumChatFormatting.GRAY).append("  ")
+                  .append(EnumChatFormatting.YELLOW).append(BedwarsStats.formatRatioShort(stats.getRecentFkdr()))
+                  .append(EnumChatFormatting.GRAY).append(" ").append(stats.getRecentWindowLabel()).append(" ")
+                  .append(arrowColor).append(arrow);
+            }
+
+            threatText = sb.toString();
         }
 
         overlayRenderer.renderThreatLabel(player, threatText, event.x, event.y, event.z);
@@ -575,6 +637,42 @@ public class BedwarsRuntime {
         if (ModConfig.isFireballDetectionEnabled() && ModConfig.isFireballOverlayEnabled()) {
             overlayRenderer.renderFireballTrajectories(fireballTrackingService.getTracked(), event.partialTicks);
         }
+
+        if (ModConfig.isBedDefenseAssistEnabled()
+                && !state.playerBedBlocks.isEmpty()
+                && isEnemyNearOwnBed(mc)) {
+            overlayRenderer.renderBedDefenseAssist(state.playerBedBlocks, event.partialTicks);
+        }
+    }
+
+    /**
+     * Returns true when at least one non-teammate player is within the
+     * configured bed-defense range of any of the local player's bed blocks.
+     * Cheap check: scans the world's loaded players, no chunk lookups.
+     */
+    private boolean isEnemyNearOwnBed(Minecraft mc) {
+        if (mc == null || mc.theWorld == null || mc.thePlayer == null) {
+            return false;
+        }
+        if (state.playerBedBlocks.isEmpty()) {
+            return false;
+        }
+        double range = ModConfig.getBedDefenseProximityRange();
+        double rangeSq = range * range;
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            if (player == mc.thePlayer) continue;
+            if (player.isInvisible()) continue;
+            if (matchThreatService.isTeammate(mc, mc.thePlayer, player)) continue;
+            for (net.minecraft.util.BlockPos bedPos : state.playerBedBlocks) {
+                double dx = player.posX - (bedPos.getX() + 0.5);
+                double dy = player.posY - (bedPos.getY() + 0.5);
+                double dz = player.posZ - (bedPos.getZ() + 0.5);
+                if (dx * dx + dy * dy + dz * dz <= rangeSq) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private void trackJoinMessageBurst(Minecraft mc, String message) {

@@ -535,12 +535,22 @@ public class BedwarsHudRenderer {
                     }
                 }
 
-                String line = threatColor + "[" + threat.name() + "] " +
-                        teamColor + cdp.name + " " +
-                        EnumChatFormatting.GRAY + stats.getStars() + "\u2B50 " +
-                        EnumChatFormatting.YELLOW + BedwarsStats.formatRatioShort(stats.getFkdr()) + " FKDR";
+                StringBuilder lineBuilder = new StringBuilder();
+                lineBuilder.append(threatColor).append("[").append(threat.name()).append("] ")
+                           .append(teamColor).append(cdp.name).append(" ")
+                           .append(EnumChatFormatting.GRAY).append(stats.getStars()).append("\u2B50 ")
+                           .append(EnumChatFormatting.YELLOW).append(BedwarsStats.formatRatioShort(stats.getFkdr()))
+                           .append(" FKDR");
 
-                lines.add(HudLine.playerLine(line, skin));
+                if (ModConfig.isRecentFkdrHudEnabled()
+                        && stats.getRecentWindow() != BedwarsStats.RecentWindow.NONE) {
+                    lineBuilder.append(EnumChatFormatting.GRAY).append("  ")
+                               .append(EnumChatFormatting.YELLOW)
+                               .append(BedwarsStats.formatRatioShort(stats.getRecentFkdr()))
+                               .append(EnumChatFormatting.GRAY).append(" ").append(stats.getRecentWindowLabel());
+                }
+
+                lines.add(HudLine.playerLine(lineBuilder.toString(), skin));
             }
         }
         return true;

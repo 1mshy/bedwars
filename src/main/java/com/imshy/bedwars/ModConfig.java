@@ -95,6 +95,26 @@ public class ModConfig {
     private static double hudScale = 1.0;
     private static double hudBackgroundOpacity = 0.4;
 
+    // Time-windowed FKDR settings
+    private static boolean recentFkdrNametagEnabled = true;
+    private static boolean recentFkdrHudEnabled = true;
+
+    // Last-seen minimap arrow settings
+    private static boolean lastSeenArrowEnabled = true;
+    private static int lastSeenArrowFreshSeconds = 6;
+    private static boolean lastSeenArrowOnlyThreats = true;
+
+    // Bed defense build assistant settings
+    private static boolean bedDefenseAssistEnabled = true;
+    private static int bedDefenseProximityRange = 18;
+
+    // Match summary card settings
+    private static boolean matchSummaryCardEnabled = true;
+    private static int matchSummaryCardDurationSeconds = 12;
+
+    // Forge config sub-categories used to organise the GUI config screen.
+    public static final String CATEGORY_NEW_FEATURES = "newfeatures";
+
     /**
      * Initialize the configuration file
      */
@@ -598,6 +618,77 @@ public class ModConfig {
                     0.0, 1.0);
             hudBackgroundOpacity = hudBgOpacityProp.getDouble();
 
+            // ─── New feature toggles (separate category for the GUI screen) ───
+            config.setCategoryComment(CATEGORY_NEW_FEATURES,
+                    "Newer features: time-windowed FKDR, last-seen minimap arrow,\n" +
+                            "bed defense build assistant, match summary card.");
+
+            Property recentFkdrNametagProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "recentFkdrNametagEnabled",
+                    true,
+                    "Append the player's recent (monthly/weekly) FKDR + delta to the in-world threat nametag.");
+            recentFkdrNametagEnabled = recentFkdrNametagProp.getBoolean();
+
+            Property recentFkdrHudProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "recentFkdrHudEnabled",
+                    true,
+                    "Show recent (monthly/weekly) FKDR alongside career FKDR in HUD detected-player rows.");
+            recentFkdrHudEnabled = recentFkdrHudProp.getBoolean();
+
+            Property lastSeenArrowProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "lastSeenArrowEnabled",
+                    true,
+                    "Show a compass-style arrow at the screen edge pointing at recently sighted threat players.");
+            lastSeenArrowEnabled = lastSeenArrowProp.getBoolean();
+
+            Property lastSeenFreshProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "lastSeenArrowFreshSeconds",
+                    6,
+                    "How many seconds after losing sight of an enemy the arrow stays on screen.",
+                    1, 30);
+            lastSeenArrowFreshSeconds = lastSeenFreshProp.getInt();
+
+            Property lastSeenOnlyThreatsProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "lastSeenArrowOnlyThreats",
+                    true,
+                    "When true, only HIGH/EXTREME threat players get an arrow. When false, all enemies do.");
+            lastSeenArrowOnlyThreats = lastSeenOnlyThreatsProp.getBoolean();
+
+            Property bedDefenseAssistProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "bedDefenseAssistEnabled",
+                    true,
+                    "Highlight exposed bed faces in red when an enemy is near your bed so you can patch them quickly.");
+            bedDefenseAssistEnabled = bedDefenseAssistProp.getBoolean();
+
+            Property bedDefenseRangeProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "bedDefenseProximityRange",
+                    18,
+                    "Distance (blocks) to your bed within which an enemy activates the defense highlight.",
+                    6, 48);
+            bedDefenseProximityRange = bedDefenseRangeProp.getInt();
+
+            Property matchSummaryProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "matchSummaryCardEnabled",
+                    true,
+                    "Show a post-match summary card with top threats and suggested blacklist entries after each game.");
+            matchSummaryCardEnabled = matchSummaryProp.getBoolean();
+
+            Property matchSummaryDurProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "matchSummaryCardDurationSeconds",
+                    12,
+                    "How long (seconds) the post-match summary card stays on screen.",
+                    3, 60);
+            matchSummaryCardDurationSeconds = matchSummaryDurProp.getInt();
+
             // Master enable/disable toggle
             Property modEnabledProp = config.get(
                     Configuration.CATEGORY_GENERAL,
@@ -891,6 +982,42 @@ public class ModConfig {
 
     public static int getFireballMaxTraceDistance() {
         return fireballMaxTraceDistance;
+    }
+
+    public static boolean isRecentFkdrNametagEnabled() {
+        return recentFkdrNametagEnabled;
+    }
+
+    public static boolean isRecentFkdrHudEnabled() {
+        return recentFkdrHudEnabled;
+    }
+
+    public static boolean isLastSeenArrowEnabled() {
+        return lastSeenArrowEnabled;
+    }
+
+    public static int getLastSeenArrowFreshSeconds() {
+        return lastSeenArrowFreshSeconds;
+    }
+
+    public static boolean isLastSeenArrowOnlyThreats() {
+        return lastSeenArrowOnlyThreats;
+    }
+
+    public static boolean isBedDefenseAssistEnabled() {
+        return bedDefenseAssistEnabled;
+    }
+
+    public static int getBedDefenseProximityRange() {
+        return bedDefenseProximityRange;
+    }
+
+    public static boolean isMatchSummaryCardEnabled() {
+        return matchSummaryCardEnabled;
+    }
+
+    public static int getMatchSummaryCardDurationSeconds() {
+        return matchSummaryCardDurationSeconds;
     }
 
     public static boolean isModEnabled() {

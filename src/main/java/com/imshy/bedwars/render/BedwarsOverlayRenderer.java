@@ -8,9 +8,11 @@ import net.minecraft.client.renderer.WorldRenderer;
 import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.BlockPos;
 import net.minecraft.util.EnumChatFormatting;
+import net.minecraft.util.EnumFacing;
 
 import com.imshy.bedwars.runtime.TrackedEnemy;
 import com.imshy.bedwars.runtime.TrackedFireball;
@@ -442,5 +444,163 @@ public class BedwarsOverlayRenderer {
             case 4: return "IV";
             default: return String.valueOf(level);
         }
+    }
+
+    /**
+     * Highlight the exposed faces of every bed block in {@code bedBlocks}. A
+     * face is "exposed" when the adjacent block is air, allowing an enemy to
+     * break the bed in one shot from that side. Highlighted faces pulse so
+     * they're visible against bright Bedwars maps.
+     */
+    public void renderBedDefenseAssist(java.util.List<BlockPos> bedBlocks, float partialTicks) {
+        if (bedBlocks == null || bedBlocks.isEmpty()) {
+            return;
+        }
+
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.theWorld == null || mc.thePlayer == null) {
+            return;
+        }
+
+        double playerX = mc.thePlayer.lastTickPosX + (mc.thePlayer.posX - mc.thePlayer.lastTickPosX) * partialTicks;
+        double playerY = mc.thePlayer.lastTickPosY + (mc.thePlayer.posY - mc.thePlayer.lastTickPosY) * partialTicks;
+        double playerZ = mc.thePlayer.lastTickPosZ + (mc.thePlayer.posZ - mc.thePlayer.lastTickPosZ) * partialTicks;
+
+        // Pulse alpha so the highlight is hard to miss but doesn't get in the way.
+        float pulse = (float) ((Math.sin(System.currentTimeMillis() / 220.0) + 1.0) / 2.0);
+        float alpha = 0.35F + 0.30F * pulse;
+
+        GlStateManager.pushMatrix();
+        GlStateManager.disableLighting();
+        GlStateManager.disableTexture2D();
+        GlStateManager.enableBlend();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GlStateManager.depthMask(false);
+        GlStateManager.disableDepth();
+        GL11.glLineWidth(2.0F);
+
+        Tessellator tessellator = Tessellator.getInstance();
+        WorldRenderer worldRenderer = tessellator.getWorldRenderer();
+
+        for (BlockPos bedPos : bedBlocks) {
+            for (EnumFacing facing : EnumFacing.values()) {
+                BlockPos adjacent = bedPos.offset(facing);
+                if (mc.theWorld.getBlockState(adjacent).getBlock() != Blocks.air) {
+                    continue;
+                }
+
+                double[] face = computeFaceCorners(bedPos, facing);
+                double x1 = face[0] - playerX;
+                double y1 = face[1] - playerY;
+                double z1 = face[2] - playerZ;
+                double x2 = face[3] - playerX;
+                double y2 = face[4] - playerY;
+                double z2 = face[5] - playerZ;
+
+                drawFaceQuad(worldRenderer, tessellator, facing, x1, y1, z1, x2, y2, z2, alpha);
+            }
+        }
+
+        GL11.glLineWidth(1.0F);
+        GlStateManager.enableDepth();
+        GlStateManager.depthMask(true);
+        GlStateManager.enableTexture2D();
+        GlStateManager.enableLighting();
+        GlStateManager.disableBlend();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        GlStateManager.popMatrix();
+    }
+
+    /**
+     * Returns {@code [x1,y1,z1, x2,y2,z2]} for a slightly inset, slightly
+     * outset face of the bed block so it draws cleanly above the bed mesh.
+     */
+    private static double[] computeFaceCorners(BlockPos pos, EnumFacing facing) {
+        double inset = 0.005;
+        double bedHeight = 0.5625; // 9/16 — bed model height in 1.8.9
+        double minX = pos.getX() + inset;
+        double minY = pos.getY() + inset;
+        double minZ = pos.getZ() + inset;
+        double maxX = pos.getX() + 1 - inset;
+        double maxY = pos.getY() + bedHeight - inset;
+        double maxZ = pos.getZ() + 1 - inset;
+
+        switch (facing) {
+            case UP:
+                return new double[]{minX, maxY + 0.002, minZ, maxX, maxY + 0.002, maxZ};
+            case DOWN:
+                return new double[]{minX, minY - 0.002, minZ, maxX, minY - 0.002, maxZ};
+            case NORTH:
+                return new double[]{minX, minY, minZ - 0.002, maxX, maxY, minZ - 0.002};
+            case SOUTH:
+                return new double[]{minX, minY, maxZ + 0.002, maxX, maxY, maxZ + 0.002};
+            case WEST:
+                return new double[]{minX - 0.002, minY, minZ, minX - 0.002, maxY, maxZ};
+            case EAST:
+            default:
+                return new double[]{maxX + 0.002, minY, minZ, maxX + 0.002, maxY, maxZ};
+        }
+    }
+
+    private static void drawFaceQuad(WorldRenderer worldRenderer, Tessellator tessellator,
+                                      EnumFacing facing,
+                                      double x1, double y1, double z1,
+                                      double x2, double y2, double z2,
+                                      float alpha) {
+        // Solid danger fill (red).
+        worldRenderer.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_COLOR);
+        switch (facing) {
+            case UP:
+            case DOWN:
+                worldRenderer.pos(x1, y1, z1).color(1.0F, 0.15F, 0.15F, alpha).endVertex();
+                worldRenderer.pos(x1, y1, z2).color(1.0F, 0.15F, 0.15F, alpha).endVertex();
+                worldRenderer.pos(x2, y2, z2).color(1.0F, 0.15F, 0.15F, alpha).endVertex();
+                worldRenderer.pos(x2, y2, z1).color(1.0F, 0.15F, 0.15F, alpha).endVertex();
+                break;
+            case NORTH:
+            case SOUTH:
+                worldRenderer.pos(x1, y1, z1).color(1.0F, 0.15F, 0.15F, alpha).endVertex();
+                worldRenderer.pos(x2, y1, z2).color(1.0F, 0.15F, 0.15F, alpha).endVertex();
+                worldRenderer.pos(x2, y2, z2).color(1.0F, 0.15F, 0.15F, alpha).endVertex();
+                worldRenderer.pos(x1, y2, z1).color(1.0F, 0.15F, 0.15F, alpha).endVertex();
+                break;
+            case WEST:
+            case EAST:
+            default:
+                worldRenderer.pos(x1, y1, z1).color(1.0F, 0.15F, 0.15F, alpha).endVertex();
+                worldRenderer.pos(x2, y1, z2).color(1.0F, 0.15F, 0.15F, alpha).endVertex();
+                worldRenderer.pos(x2, y2, z2).color(1.0F, 0.15F, 0.15F, alpha).endVertex();
+                worldRenderer.pos(x1, y2, z1).color(1.0F, 0.15F, 0.15F, alpha).endVertex();
+                break;
+        }
+        tessellator.draw();
+
+        // Bright outline so the exposed face stands out.
+        worldRenderer.begin(GL11.GL_LINE_LOOP, DefaultVertexFormats.POSITION_COLOR);
+        switch (facing) {
+            case UP:
+            case DOWN:
+                worldRenderer.pos(x1, y1, z1).color(1.0F, 1.0F, 0.4F, 1.0F).endVertex();
+                worldRenderer.pos(x1, y1, z2).color(1.0F, 1.0F, 0.4F, 1.0F).endVertex();
+                worldRenderer.pos(x2, y2, z2).color(1.0F, 1.0F, 0.4F, 1.0F).endVertex();
+                worldRenderer.pos(x2, y2, z1).color(1.0F, 1.0F, 0.4F, 1.0F).endVertex();
+                break;
+            case NORTH:
+            case SOUTH:
+                worldRenderer.pos(x1, y1, z1).color(1.0F, 1.0F, 0.4F, 1.0F).endVertex();
+                worldRenderer.pos(x2, y1, z2).color(1.0F, 1.0F, 0.4F, 1.0F).endVertex();
+                worldRenderer.pos(x2, y2, z2).color(1.0F, 1.0F, 0.4F, 1.0F).endVertex();
+                worldRenderer.pos(x1, y2, z1).color(1.0F, 1.0F, 0.4F, 1.0F).endVertex();
+                break;
+            case WEST:
+            case EAST:
+            default:
+                worldRenderer.pos(x1, y1, z1).color(1.0F, 1.0F, 0.4F, 1.0F).endVertex();
+                worldRenderer.pos(x2, y1, z2).color(1.0F, 1.0F, 0.4F, 1.0F).endVertex();
+                worldRenderer.pos(x2, y2, z2).color(1.0F, 1.0F, 0.4F, 1.0F).endVertex();
+                worldRenderer.pos(x1, y2, z1).color(1.0F, 1.0F, 0.4F, 1.0F).endVertex();
+                break;
+        }
+        tessellator.draw();
     }
 }

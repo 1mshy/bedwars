@@ -1,7 +1,16 @@
 package com.imshy.bedwars;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
 /**
- * Data class holding Bedwars statistics for a player
+ * Data class holding Bedwars statistics for a player.
+ *
+ * Parses the Hypixel API response with Gson, extracting both career counters
+ * and Hypixel's rolling monthly/weekly buckets. The rolling buckets are
+ * summed across the {@code _a}/{@code _b} ping-pong slots that Hypixel uses
+ * internally to keep the time window fresh.
  */
 public class BedwarsStats {
 
@@ -14,25 +23,53 @@ public class BedwarsStats {
         NICKED // Player is using a Hypixel nick (alias) — real identity hidden
     }
 
+    /** Recent-form summary used by HUD/overlay code. */
+    public enum RecentWindow {
+        NONE,
+        WEEKLY,
+        MONTHLY
+    }
+
     private final String playerName;
     private final String uuid;
 
-    // Core stats
-    private int stars = 0; // Bedwars level
+    // Core (career) stats
+    private int stars = 0;
     private int finalKills = 0;
     private int finalDeaths = 0;
     private int wins = 0;
     private int losses = 0;
     private int bedsBroken = 0;
+    private double fkdr = 0.0;
+    private double wlr = 0.0;
 
-    // Calculated ratios
-    private double fkdr = 0.0; // Final Kill/Death Ratio
-    private double wlr = 0.0; // Win/Loss Ratio
+    // Rolling monthly counters (Hypixel _monthly_a + _monthly_b)
+    private int monthlyFinalKills = 0;
+    private int monthlyFinalDeaths = 0;
+    private int monthlyWins = 0;
+    private int monthlyLosses = 0;
+    private double monthlyFkdr = 0.0;
+    private double monthlyWlr = 0.0;
+
+    // Rolling weekly counters (Hypixel _weekly_a + _weekly_b)
+    private int weeklyFinalKills = 0;
+    private int weeklyFinalDeaths = 0;
+    private int weeklyWins = 0;
+    private int weeklyLosses = 0;
+    private double weeklyFkdr = 0.0;
+    private double weeklyWlr = 0.0;
 
     private boolean loaded = false;
     private boolean error = false;
     private String errorMessage = null;
     private boolean nicked = false;
+
+    /**
+     * Minimum recent final-kill volume required to consider a windowed FKDR
+     * representative. Below this, a player has not played enough games for the
+     * recent ratio to be meaningful and we fall back to the next window.
+     */
+    private static final int MIN_RECENT_FK_FOR_RELIABLE_FKDR = 25;
 
     public BedwarsStats(String playerName, String uuid) {
         this.playerName = playerName;
@@ -51,70 +88,86 @@ public class BedwarsStats {
     }
 
     /**
-     * Parse stats from Hypixel API JSON response
+     * Parse stats from Hypixel API JSON response using Gson. The response is
+     * expected to look like:
+     *   { "success": true, "player": { "stats": { "Bedwars": { ... } } } }
      */
     public void parseFromJson(String jsonResponse) {
         try {
-            // Manual JSON parsing (no external libraries needed for Forge 1.8.9)
-            if (jsonResponse == null || !jsonResponse.contains("\"success\":true")) {
+            if (jsonResponse == null) {
+                error = true;
+                errorMessage = "Empty API response";
+                return;
+            }
+
+            JsonElement parsed = new JsonParser().parse(jsonResponse);
+            if (parsed == null || !parsed.isJsonObject()) {
+                error = true;
+                errorMessage = "Malformed API response";
+                return;
+            }
+
+            JsonObject root = parsed.getAsJsonObject();
+            if (!getBoolean(root, "success")) {
                 error = true;
                 errorMessage = "API request failed";
                 return;
             }
 
-            // Hypixel returns "player":null when the account has never logged in —
-            // a strong nick signal.
-            if (jsonResponse.contains("\"player\":null")) {
+            // "player":null indicates an account that has never logged in to
+            // Hypixel — a strong nick signal.
+            JsonElement playerEl = root.get("player");
+            if (playerEl == null || playerEl.isJsonNull()) {
                 loaded = true;
                 nicked = true;
                 return;
             }
 
-            // Check if player has Bedwars stats
-            if (!jsonResponse.contains("\"Bedwars\"")) {
-                // Player exists but hasn't played Bedwars — treat as nicked since
-                // an in-game opponent with no Bedwars history is almost certainly
-                // a nick.
+            JsonObject player = playerEl.getAsJsonObject();
+            JsonObject stats = getObject(player, "stats");
+            if (stats == null) {
                 loaded = true;
                 nicked = true;
                 return;
             }
 
-            // Scope all stat extraction to the Bedwars section of the response.
-            // The full API response contains stats for every game, quests, and
-            // achievements, so keys like "final_deaths_bedwars" can appear outside
-            // the Bedwars object (e.g. in quest descriptors) with wrong values.
-            String bedwarsJson = extractJsonSection(jsonResponse, "Bedwars");
-            if (bedwarsJson == null) {
-                // Bedwars key present but section could not be extracted
+            JsonObject bw = getObject(stats, "Bedwars");
+            if (bw == null) {
+                // Account exists but no Bedwars play history — almost always
+                // a nick when seen as an opponent in-game.
                 loaded = true;
+                nicked = true;
                 return;
             }
 
-            // Extract Experience to calculate stars
-            int exp = extractInt(bedwarsJson, "Experience");
-            stars = calculateStars(exp);
+            this.stars = calculateStars(getInt(bw, "Experience"));
 
-            // Extract kill/death stats
-            finalKills = extractInt(bedwarsJson, "final_kills_bedwars");
-            finalDeaths = extractInt(bedwarsJson, "final_deaths_bedwars");
+            this.finalKills = getInt(bw, "final_kills_bedwars");
+            this.finalDeaths = getInt(bw, "final_deaths_bedwars");
+            this.wins = getInt(bw, "wins_bedwars");
+            this.losses = getInt(bw, "losses_bedwars");
+            this.bedsBroken = getInt(bw, "beds_broken_bedwars");
+            this.fkdr = computeRatio(finalKills, finalDeaths);
+            this.wlr = computeRatio(wins, losses);
 
-            // Extract win/loss stats
-            wins = extractInt(bedwarsJson, "wins_bedwars");
-            losses = extractInt(bedwarsJson, "losses_bedwars");
+            // Rolling monthly + weekly windows. Hypixel maintains two ping-pong
+            // buckets (_a/_b) per stat that together cover the full window.
+            this.monthlyFinalKills = sumBuckets(bw, "final_kills_bedwars_monthly");
+            this.monthlyFinalDeaths = sumBuckets(bw, "final_deaths_bedwars_monthly");
+            this.monthlyWins = sumBuckets(bw, "wins_bedwars_monthly");
+            this.monthlyLosses = sumBuckets(bw, "losses_bedwars_monthly");
+            this.monthlyFkdr = computeRatio(monthlyFinalKills, monthlyFinalDeaths);
+            this.monthlyWlr = computeRatio(monthlyWins, monthlyLosses);
 
-            // Extract beds broken
-            bedsBroken = extractInt(bedwarsJson, "beds_broken_bedwars");
+            this.weeklyFinalKills = sumBuckets(bw, "final_kills_bedwars_weekly");
+            this.weeklyFinalDeaths = sumBuckets(bw, "final_deaths_bedwars_weekly");
+            this.weeklyWins = sumBuckets(bw, "wins_bedwars_weekly");
+            this.weeklyLosses = sumBuckets(bw, "losses_bedwars_weekly");
+            this.weeklyFkdr = computeRatio(weeklyFinalKills, weeklyFinalDeaths);
+            this.weeklyWlr = computeRatio(weeklyWins, weeklyLosses);
 
-            // Calculate ratios. Use Double.MAX_VALUE as a sentinel for "infinite"
-            // (kills with 0 deaths / wins with 0 losses) so displays can show ∞.
-            fkdr = finalDeaths > 0 ? (double) finalKills / finalDeaths
-                    : (finalKills > 0 ? Double.MAX_VALUE : 0.0);
-            wlr = losses > 0 ? (double) wins / losses
-                    : (wins > 0 ? Double.MAX_VALUE : 0.0);
-
-            // All core counters zero after a successful parse => Bedwars section
-            // exists but is empty. That pattern matches a nicked account.
+            // All zero after a successful parse => Bedwars section exists but
+            // is empty — matches a nicked account.
             if (stars == 0 && finalKills == 0 && finalDeaths == 0
                     && wins == 0 && losses == 0 && bedsBroken == 0) {
                 nicked = true;
@@ -128,27 +181,69 @@ public class BedwarsStats {
         }
     }
 
+    private static boolean getBoolean(JsonObject obj, String key) {
+        if (obj == null) return false;
+        JsonElement el = obj.get(key);
+        if (el == null || el.isJsonNull() || !el.isJsonPrimitive()) return false;
+        try {
+            return el.getAsBoolean();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static int getInt(JsonObject obj, String key) {
+        if (obj == null) return 0;
+        JsonElement el = obj.get(key);
+        if (el == null || el.isJsonNull() || !el.isJsonPrimitive()) return 0;
+        try {
+            return el.getAsInt();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static JsonObject getObject(JsonObject obj, String key) {
+        if (obj == null) return null;
+        JsonElement el = obj.get(key);
+        if (el == null || el.isJsonNull() || !el.isJsonObject()) return null;
+        return el.getAsJsonObject();
+    }
+
     /**
-     * Calculate Bedwars stars from experience
-     * Based on Hypixel's leveling formula
+     * Sum the {@code _a} and {@code _b} buckets that Hypixel uses to maintain
+     * a rolling window for monthly/weekly counters. Either bucket may be
+     * missing if the player has not played in that period.
+     */
+    private static int sumBuckets(JsonObject bw, String prefix) {
+        return getInt(bw, prefix + "_a") + getInt(bw, prefix + "_b");
+    }
+
+    private static double computeRatio(int num, int den) {
+        if (den > 0) {
+            return (double) num / den;
+        }
+        return num > 0 ? Double.MAX_VALUE : 0.0;
+    }
+
+    /**
+     * Calculate Bedwars stars from experience.
+     * Based on Hypixel's leveling formula.
      */
     private int calculateStars(int exp) {
-        // Simplified star calculation
-        // Each prestige is 487000 exp, each level within prestige varies
-        if (exp < 0)
+        if (exp < 0) {
             return 0;
+        }
 
         int level = 0;
         int remaining = exp;
 
-        // Experience thresholds per level (repeats every 100 levels with prestige
-        // bonus)
+        // Experience thresholds per level (repeats every 100 levels with prestige bonus)
         int[] levelThresholds = { 500, 1000, 2000, 3500, 5000 };
 
         while (remaining > 0) {
             int threshold = levelThresholds[Math.min(level % 100, 4)];
             if (level >= 100) {
-                // Add prestige bonus
                 threshold += (level / 100) * 500;
             }
 
@@ -159,113 +254,37 @@ public class BedwarsStats {
                 break;
             }
 
-            // Safety limit
-            if (level > 5000)
+            if (level > 5000) {
                 break;
+            }
         }
 
         return level;
     }
 
     /**
-     * Extract a top-level JSON object section by key name.
-     * Walks the string to find "key":{ ... } using brace counting, returning the
-     * inner content (excluding the outer braces) so that extractInt searches are
-     * properly scoped to that section.
-     */
-    private String extractJsonSection(String json, String sectionKey) {
-        String searchKey = "\"" + sectionKey + "\":";
-        int keyIndex = json.indexOf(searchKey);
-        if (keyIndex == -1)
-            return null;
-
-        int braceStart = json.indexOf('{', keyIndex + searchKey.length());
-        if (braceStart == -1)
-            return null;
-
-        int depth = 1;
-        int i = braceStart + 1;
-        while (i < json.length() && depth > 0) {
-            char c = json.charAt(i);
-            if (c == '{')
-                depth++;
-            else if (c == '}')
-                depth--;
-            i++;
-        }
-
-        if (depth != 0)
-            return null;
-
-        return json.substring(braceStart, i); // includes outer { }
-    }
-
-    /**
-     * Extract integer value from JSON by key
-     */
-    private int extractInt(String json, String key) {
-        String searchKey = "\"" + key + "\":";
-        int keyIndex = json.indexOf(searchKey);
-        if (keyIndex == -1)
-            return 0;
-
-        int valueStart = keyIndex + searchKey.length();
-        int valueEnd = valueStart;
-
-        // Find end of number
-        while (valueEnd < json.length()) {
-            char c = json.charAt(valueEnd);
-            if (c >= '0' && c <= '9') {
-                valueEnd++;
-            } else {
-                break;
-            }
-        }
-
-        if (valueEnd == valueStart)
-            return 0;
-
-        try {
-            return Integer.parseInt(json.substring(valueStart, valueEnd));
-        } catch (NumberFormatException e) {
-            return 0;
-        }
-    }
-
-    /**
-     * Determine threat level based on stats
+     * Determine threat level based on stats.
      */
     public ThreatLevel getThreatLevel() {
         if (error || !loaded)
             return ThreatLevel.UNKNOWN;
 
-        // Nicked players hide their skill; surface that before skill-based tiers.
-        // The renderer/config gate decides whether to act on this.
         if (nicked && ModConfig.isNickDetectionEnabled()) {
             return ThreatLevel.NICKED;
         }
 
-        // EXTREME: 500+ stars OR 6+ FKDR
         if (stars >= 500 || fkdr >= 6.0) {
             return ThreatLevel.EXTREME;
         }
-
-        // HIGH: 300+ stars OR 4+ FKDR
         if (stars >= 300 || fkdr >= 4.0) {
             return ThreatLevel.HIGH;
         }
-
-        // MEDIUM: 100+ stars OR 2+ FKDR
         if (stars >= 100 || fkdr >= 2.0) {
             return ThreatLevel.MEDIUM;
         }
-
         return ThreatLevel.LOW;
     }
 
-    /**
-     * Get color code for threat level
-     */
     public String getThreatColor() {
         switch (getThreatLevel()) {
             case EXTREME:
@@ -283,9 +302,6 @@ public class BedwarsStats {
         }
     }
 
-    /**
-     * Format a ratio value for display, showing "∞" when the sentinel Double.MAX_VALUE is used.
-     */
     public static String formatRatio(double ratio) {
         if (ratio == Double.MAX_VALUE) {
             return "\u221e";
@@ -293,9 +309,6 @@ public class BedwarsStats {
         return String.format("%.2f", ratio);
     }
 
-    /**
-     * Same as {@link #formatRatio} but with one decimal place, for compact HUD displays.
-     */
     public static String formatRatioShort(double ratio) {
         if (ratio == Double.MAX_VALUE) {
             return "\u221e";
@@ -303,9 +316,6 @@ public class BedwarsStats {
         return String.format("%.1f", ratio);
     }
 
-    /**
-     * Format stats for display
-     */
     public String getDisplayString() {
         if (error) {
             return "\u00A77[Error]";
@@ -321,11 +331,66 @@ public class BedwarsStats {
         return color + "[" + stars + "\u2B50] " + formatRatio(fkdr) + " FKDR";
     }
 
+    /**
+     * Pick the most representative recent FKDR. Prefers the monthly window if
+     * the player has played enough finals there; otherwise tries weekly;
+     * otherwise falls back to career.
+     */
+    public double getRecentFkdr() {
+        RecentWindow window = getRecentWindow();
+        switch (window) {
+            case MONTHLY:
+                return monthlyFkdr;
+            case WEEKLY:
+                return weeklyFkdr;
+            default:
+                return fkdr;
+        }
+    }
+
+    public RecentWindow getRecentWindow() {
+        if (monthlyFinalKills + monthlyFinalDeaths >= MIN_RECENT_FK_FOR_RELIABLE_FKDR) {
+            return RecentWindow.MONTHLY;
+        }
+        if (weeklyFinalKills + weeklyFinalDeaths >= MIN_RECENT_FK_FOR_RELIABLE_FKDR) {
+            return RecentWindow.WEEKLY;
+        }
+        return RecentWindow.NONE;
+    }
+
+    /**
+     * Difference between recent FKDR and career FKDR. Returns 0 when no
+     * recent window has enough samples or career FKDR is unset.
+     * A positive value means the player is currently outperforming their
+     * lifetime average ("hot"); negative means they're slumping.
+     */
+    public double getRecentFkdrDelta() {
+        if (getRecentWindow() == RecentWindow.NONE) {
+            return 0.0;
+        }
+        double recent = getRecentFkdr();
+        if (recent == Double.MAX_VALUE || fkdr == Double.MAX_VALUE) {
+            return 0.0;
+        }
+        return recent - fkdr;
+    }
+
+    /** Compact "MO"/"WK" tag for the active recent window. */
+    public String getRecentWindowLabel() {
+        switch (getRecentWindow()) {
+            case MONTHLY:
+                return "MO";
+            case WEEKLY:
+                return "WK";
+            default:
+                return "";
+        }
+    }
+
     public boolean isNicked() {
         return nicked;
     }
 
-    // Getters
     public String getPlayerName() {
         return playerName;
     }
@@ -364,6 +429,54 @@ public class BedwarsStats {
 
     public int getBedsBroken() {
         return bedsBroken;
+    }
+
+    public int getMonthlyFinalKills() {
+        return monthlyFinalKills;
+    }
+
+    public int getMonthlyFinalDeaths() {
+        return monthlyFinalDeaths;
+    }
+
+    public double getMonthlyFkdr() {
+        return monthlyFkdr;
+    }
+
+    public int getMonthlyWins() {
+        return monthlyWins;
+    }
+
+    public int getMonthlyLosses() {
+        return monthlyLosses;
+    }
+
+    public double getMonthlyWlr() {
+        return monthlyWlr;
+    }
+
+    public int getWeeklyFinalKills() {
+        return weeklyFinalKills;
+    }
+
+    public int getWeeklyFinalDeaths() {
+        return weeklyFinalDeaths;
+    }
+
+    public double getWeeklyFkdr() {
+        return weeklyFkdr;
+    }
+
+    public int getWeeklyWins() {
+        return weeklyWins;
+    }
+
+    public int getWeeklyLosses() {
+        return weeklyLosses;
+    }
+
+    public double getWeeklyWlr() {
+        return weeklyWlr;
     }
 
     public boolean isLoaded() {

@@ -107,6 +107,7 @@ public class EnemyTrackingService {
             }
 
             TrackedEnemy tracked = getOrCreateTracked(player.getName());
+            tracked.recordSighting(player.posX, player.posY, player.posZ, currentTime);
 
             // Scan armor for highest Protection enchantment level
             int maxProt = 0;

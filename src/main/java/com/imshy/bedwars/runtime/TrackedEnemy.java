@@ -17,6 +17,13 @@ public class TrackedEnemy {
     public final List<ItemStack> observedHotbarItems = new ArrayList<ItemStack>();
     private final Set<String> seenItemKeys = new HashSet<String>();
 
+    // Last-seen tracking for the off-screen "last seen" arrow HUD overlay.
+    // {@code lastSeenTime} is 0 when never observed.
+    public double lastSeenX;
+    public double lastSeenY;
+    public double lastSeenZ;
+    public long lastSeenTime;
+
     private enum ToolCategory { SWORD, PICKAXE, AXE }
 
     private static class ToolInfo {
@@ -100,9 +107,17 @@ public class TrackedEnemy {
         armorProtectionLevel = 0;
         observedHotbarItems.clear();
         seenItemKeys.clear();
+        lastSeenTime = 0;
     }
 
     public boolean hasAnyData() {
         return diamondCount > 0 || emeraldCount > 0 || armorProtectionLevel > 0 || !observedHotbarItems.isEmpty();
+    }
+
+    public void recordSighting(double x, double y, double z, long now) {
+        this.lastSeenX = x;
+        this.lastSeenY = y;
+        this.lastSeenZ = z;
+        this.lastSeenTime = now;
     }
 }

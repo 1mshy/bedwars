@@ -82,22 +82,38 @@ public class BedwarsCommand extends CommandBase {
                 @Override
                 public void onStatsLoaded(BedwarsStats stats) {
                     Minecraft mc = Minecraft.getMinecraft();
-                    if (mc.thePlayer != null) {
-                        mc.thePlayer.addChatMessage(new ChatComponentText(
-                                EnumChatFormatting.GOLD + "=== " + targetPlayer + " ===\n" +
-                                        EnumChatFormatting.WHITE + "Stars: " + EnumChatFormatting.YELLOW
-                                        + stats.getStars() + "\n" +
-                                        EnumChatFormatting.WHITE + "FKDR: " + EnumChatFormatting.YELLOW
-                                        + String.format("%.2f", stats.getFkdr()) +
-                                        " (" + stats.getFinalKills() + "/" + stats.getFinalDeaths() + ")\n" +
-                                        EnumChatFormatting.WHITE + "WLR: " + EnumChatFormatting.YELLOW
-                                        + String.format("%.2f", stats.getWlr()) +
-                                        " (" + stats.getWins() + "/" + stats.getLosses() + ")\n" +
-                                        EnumChatFormatting.WHITE + "Beds: " + EnumChatFormatting.YELLOW
-                                        + stats.getBedsBroken() + "\n" +
-                                        EnumChatFormatting.WHITE + "Threat: " + stats.getThreatColor()
-                                        + stats.getThreatLevel().name()));
+                    if (mc.thePlayer == null) {
+                        return;
                     }
+
+                    StringBuilder sb = new StringBuilder();
+                    sb.append(EnumChatFormatting.GOLD).append("=== ").append(targetPlayer).append(" ===\n");
+                    sb.append(EnumChatFormatting.WHITE).append("Stars: ")
+                      .append(EnumChatFormatting.YELLOW).append(stats.getStars()).append("\n");
+                    sb.append(EnumChatFormatting.WHITE).append("FKDR: ")
+                      .append(EnumChatFormatting.YELLOW).append(BedwarsStats.formatRatio(stats.getFkdr()))
+                      .append(" (").append(stats.getFinalKills()).append("/").append(stats.getFinalDeaths()).append(")\n");
+
+                    BedwarsStats.RecentWindow window = stats.getRecentWindow();
+                    if (window != BedwarsStats.RecentWindow.NONE) {
+                        double recent = stats.getRecentFkdr();
+                        double delta = stats.getRecentFkdrDelta();
+                        String deltaText = formatDelta(delta);
+                        sb.append(EnumChatFormatting.WHITE).append("Recent FKDR: ")
+                          .append(EnumChatFormatting.YELLOW).append(BedwarsStats.formatRatio(recent))
+                          .append(EnumChatFormatting.GRAY).append(" [").append(stats.getRecentWindowLabel()).append("] ")
+                          .append(deltaText).append("\n");
+                    }
+
+                    sb.append(EnumChatFormatting.WHITE).append("WLR: ")
+                      .append(EnumChatFormatting.YELLOW).append(BedwarsStats.formatRatio(stats.getWlr()))
+                      .append(" (").append(stats.getWins()).append("/").append(stats.getLosses()).append(")\n");
+                    sb.append(EnumChatFormatting.WHITE).append("Beds: ")
+                      .append(EnumChatFormatting.YELLOW).append(stats.getBedsBroken()).append("\n");
+                    sb.append(EnumChatFormatting.WHITE).append("Threat: ")
+                      .append(stats.getThreatColor()).append(stats.getThreatLevel().name());
+
+                    mc.thePlayer.addChatMessage(new ChatComponentText(sb.toString()));
                 }
 
                 @Override
@@ -551,6 +567,20 @@ public class BedwarsCommand extends CommandBase {
         } else {
             sendMessage(sender, EnumChatFormatting.GREEN + "Started Bedwars tracking as if you just joined.");
         }
+    }
+
+    /**
+     * Format a recent-FKDR delta with arrow + sign + colour. Tiny deltas show
+     * a flat line so we don't visually shout about noise.
+     */
+    private static String formatDelta(double delta) {
+        if (Math.abs(delta) < 0.10) {
+            return EnumChatFormatting.GRAY + "(\u2192 flat)";
+        }
+        if (delta > 0) {
+            return EnumChatFormatting.RED + "(\u2191 +" + String.format("%.2f", delta) + ")";
+        }
+        return EnumChatFormatting.GREEN + "(\u2193 " + String.format("%.2f", delta) + ")";
     }
 
     private String joinArgs(String[] args, int startIndex) {
