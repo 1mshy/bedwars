@@ -70,6 +70,7 @@ public class BedwarsRuntime {
     private final EnemyTrackingService enemyTrackingService;
     private final FireballTrackingService fireballTrackingService;
     private final ProjectileTrackingService projectileTrackingService;
+    private final EnderPearlPredictionService enderPearlPredictionService;
     private final FinalKillLedger finalKillLedger;
     private final BedwarsOverlayRenderer overlayRenderer;
     private final BedwarsHudRenderer hudRenderer;
@@ -86,6 +87,7 @@ public class BedwarsRuntime {
         this.enemyTrackingService = new EnemyTrackingService(state, matchThreatService);
         this.fireballTrackingService = new FireballTrackingService();
         this.projectileTrackingService = new ProjectileTrackingService();
+        this.enderPearlPredictionService = new EnderPearlPredictionService();
         this.finalKillLedger = new FinalKillLedger();
         this.overlayRenderer = new BedwarsOverlayRenderer();
         this.hudRenderer = new BedwarsHudRenderer();
@@ -691,11 +693,26 @@ public class BedwarsRuntime {
             overlayRenderer.renderProjectileTrajectories(projectileTrackingService.getTracked(), event.partialTicks);
         }
 
+        if (ModConfig.isEnderPearlPreviewEnabled() && isHoldingEnderPearl(mc.thePlayer)) {
+            TrackedProjectile preview = enderPearlPredictionService.predict(mc);
+            if (preview != null) {
+                overlayRenderer.renderPreThrowArc(preview, event.partialTicks);
+            }
+        }
+
         if (ModConfig.isBedDefenseAssistEnabled()
                 && !state.playerBedBlocks.isEmpty()
                 && isEnemyNearOwnBed(mc)) {
             overlayRenderer.renderBedDefenseAssist(state.playerBedBlocks, event.partialTicks);
         }
+    }
+
+    private static boolean isHoldingEnderPearl(EntityPlayer player) {
+        if (player == null) {
+            return false;
+        }
+        net.minecraft.item.ItemStack held = player.getHeldItem();
+        return held != null && held.getItem() == net.minecraft.init.Items.ender_pearl;
     }
 
     /**

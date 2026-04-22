@@ -132,6 +132,7 @@ public class ModConfig {
     private static boolean enderPearlTrackingEnabled = true;
     private static boolean enderPearlOverlayEnabled = true;
     private static double enderPearlAlertRadius = 8.0;
+    private static boolean enderPearlPreviewEnabled = true;
 
     // Forge config sub-categories used to organise the GUI config screen.
     public static final String CATEGORY_NEW_FEATURES = "newfeatures";
@@ -789,6 +790,13 @@ public class ModConfig {
                     1.0, 30.0);
             enderPearlAlertRadius = enderPearlAlertRadiusProp.getDouble();
 
+            Property enderPearlPreviewProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "enderPearlPreviewEnabled",
+                    true,
+                    "Show a predicted arc and landing marker for your own ender pearls when holding one.");
+            enderPearlPreviewEnabled = enderPearlPreviewProp.getBoolean();
+
             // Master enable/disable toggle
             Property modEnabledProp = config.get(
                     Configuration.CATEGORY_GENERAL,
@@ -1162,6 +1170,16 @@ public class ModConfig {
 
     public static double getEnderPearlAlertRadius() {
         return enderPearlAlertRadius;
+    }
+
+    public static boolean isEnderPearlPreviewEnabled() {
+        return enderPearlPreviewEnabled;
+    }
+
+    public static void setEnderPearlPreviewEnabled(boolean enabled) {
+        enderPearlPreviewEnabled = enabled;
+        config.get(CATEGORY_NEW_FEATURES, "enderPearlPreviewEnabled", true).set(enabled);
+        config.save();
     }
 
     public static boolean isModEnabled() {

@@ -557,6 +557,66 @@ public class BedwarsOverlayRenderer {
         GlStateManager.popMatrix();
     }
 
+    /**
+     * Render the local player's predicted ender-pearl arc in cyan so it can't
+     * be confused with incoming enemy pearls (which render in red/purple).
+     */
+    public void renderPreThrowArc(TrackedProjectile preview, float partialTicks) {
+        if (preview == null || preview.arcPoints.size() < 2) {
+            return;
+        }
+
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.thePlayer == null) {
+            return;
+        }
+
+        double playerX = mc.thePlayer.lastTickPosX + (mc.thePlayer.posX - mc.thePlayer.lastTickPosX) * partialTicks;
+        double playerY = mc.thePlayer.lastTickPosY + (mc.thePlayer.posY - mc.thePlayer.lastTickPosY) * partialTicks;
+        double playerZ = mc.thePlayer.lastTickPosZ + (mc.thePlayer.posZ - mc.thePlayer.lastTickPosZ) * partialTicks;
+
+        GlStateManager.pushMatrix();
+        GlStateManager.disableLighting();
+        GlStateManager.disableTexture2D();
+        GlStateManager.enableBlend();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GlStateManager.depthMask(false);
+        GlStateManager.disableDepth();
+        GL11.glLineWidth(1.8F);
+
+        Tessellator tessellator = Tessellator.getInstance();
+        WorldRenderer worldRenderer = tessellator.getWorldRenderer();
+
+        float r = 0.3F;
+        float g = 0.9F;
+        float b = 1.0F;
+
+        worldRenderer.begin(GL11.GL_LINE_STRIP, DefaultVertexFormats.POSITION_COLOR);
+        for (TrackedProjectile.Point p : preview.arcPoints) {
+            worldRenderer.pos(p.x - playerX, p.y - playerY, p.z - playerZ)
+                          .color(r, g, b, 1.0F).endVertex();
+        }
+        tessellator.draw();
+
+        double lx = preview.landingX - playerX;
+        double ly = preview.landingY - playerY;
+        double lz = preview.landingZ - playerZ;
+        double half = 0.3;
+        drawWireframeBox(worldRenderer, tessellator,
+                lx - half, ly - half, lz - half,
+                lx + half, ly + half, lz + half,
+                r, g, b, 1.0F);
+
+        GL11.glLineWidth(1.0F);
+        GlStateManager.enableDepth();
+        GlStateManager.depthMask(true);
+        GlStateManager.enableTexture2D();
+        GlStateManager.enableLighting();
+        GlStateManager.disableBlend();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        GlStateManager.popMatrix();
+    }
+
     private static void drawWireframeBox(WorldRenderer worldRenderer, Tessellator tessellator,
                                          double x1, double y1, double z1,
                                          double x2, double y2, double z2,

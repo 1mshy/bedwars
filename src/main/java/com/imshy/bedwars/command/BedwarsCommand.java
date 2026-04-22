@@ -58,6 +58,7 @@ public class BedwarsCommand extends CommandBase {
             sendMessage(sender, "/bw reset - Reset all HUD and runtime state (like a fresh boot)");
             sendMessage(sender, "/bw disable - Disable all automatic features (stat lookup, alerts, HUD, audio)");
             sendMessage(sender, "/bw enable - Re-enable all automatic features");
+            sendMessage(sender, "/bw pearlpreview - Toggle ender pearl trajectory preview");
             sendMessage(sender, EnumChatFormatting.GRAY + "Tactical features (toggle in config GUI):");
             sendMessage(sender, EnumChatFormatting.GRAY + "  pre-game briefing, generator countdown, enemy loadout row,");
             sendMessage(sender, EnumChatFormatting.GRAY + "  final-kill feed, ender-pearl trajectory overlay");
@@ -247,6 +248,17 @@ public class BedwarsCommand extends CommandBase {
         } else if (subCommand.equals("rejoin")) {
             handleRejoinCommand(sender);
 
+        } else if (subCommand.equals("pearlpreview")) {
+            boolean enabled = !ModConfig.isEnderPearlPreviewEnabled();
+            ModConfig.setEnderPearlPreviewEnabled(enabled);
+            if (enabled) {
+                sendMessage(sender, EnumChatFormatting.GOLD + "[BW] " +
+                        EnumChatFormatting.GREEN + "Ender pearl trajectory preview enabled.");
+            } else {
+                sendMessage(sender, EnumChatFormatting.GOLD + "[BW] " +
+                        EnumChatFormatting.RED + "Ender pearl trajectory preview disabled.");
+            }
+
         } else {
             sendMessage(sender, EnumChatFormatting.RED + "Unknown command. Use /bw for help.");
         }
@@ -258,7 +270,7 @@ public class BedwarsCommand extends CommandBase {
         if (args.length == 1) {
             return getListOfStringsMatchingLastWord(args, "setkey", "lookup", "all", "info", "autoplay",
                     "afk", "rejoin", "blacklist", "history",
-                    "status", "clear", "reset", "disable", "enable");
+                    "status", "clear", "reset", "disable", "enable", "pearlpreview");
         }
 
         if (args.length == 2) {

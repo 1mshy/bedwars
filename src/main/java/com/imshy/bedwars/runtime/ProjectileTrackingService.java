@@ -11,6 +11,7 @@ import net.minecraft.entity.projectile.EntityThrowable;
 import net.minecraft.util.BlockPos;
 import net.minecraft.util.MovingObjectPosition;
 import net.minecraft.util.Vec3;
+import net.minecraft.world.World;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -35,9 +36,9 @@ import java.util.Set;
  */
 public class ProjectileTrackingService {
 
-    private static final double GRAVITY = 0.03D;
-    private static final double DRAG = 0.99D;
-    private static final int MAX_INTEGRATION_STEPS = 200; // ~10s worst case
+    static final double GRAVITY = 0.03D;
+    static final double DRAG = 0.99D;
+    static final int MAX_INTEGRATION_STEPS = 200; // ~10s worst case
 
     private final Map<Integer, TrackedProjectile> tracked = new HashMap<Integer, TrackedProjectile>();
     private final Set<Integer> alertedIds = new HashSet<Integer>();
@@ -137,19 +138,36 @@ public class ProjectileTrackingService {
     }
 
     private void integrateArc(Minecraft mc, TrackedProjectile tp) {
+        integrateArcFrom(mc.theWorld, tp, tp.posX, tp.posY, tp.posZ,
+                tp.motionX, tp.motionY, tp.motionZ);
+    }
+
+    /**
+     * Step-integrate 1.8.9 thrown-entity physics from an arbitrary origin and
+     * motion, populating {@code tp.arcPoints} plus the terminal landing
+     * position. Shared between the enemy-pearl tracker and the local-player
+     * pre-throw preview so both produce identical curves.
+     */
+    static void integrateArcFrom(World world, TrackedProjectile tp,
+                                  double startX, double startY, double startZ,
+                                  double motionX, double motionY, double motionZ) {
         tp.arcPoints.clear();
-        double x = tp.posX;
-        double y = tp.posY;
-        double z = tp.posZ;
-        double mx = tp.motionX;
-        double my = tp.motionY;
-        double mz = tp.motionZ;
+        double x = startX;
+        double y = startY;
+        double z = startZ;
+        double mx = motionX;
+        double my = motionY;
+        double mz = motionZ;
 
         tp.arcPoints.add(new TrackedProjectile.Point(x, y, z));
         tp.landingValid = false;
         tp.landingX = x;
         tp.landingY = y;
         tp.landingZ = z;
+
+        if (world == null) {
+            return;
+        }
 
         for (int step = 0; step < MAX_INTEGRATION_STEPS; step++) {
             double nx = x + mx;
@@ -158,7 +176,7 @@ public class ProjectileTrackingService {
 
             Vec3 start = new Vec3(x, y, z);
             Vec3 end = new Vec3(nx, ny, nz);
-            MovingObjectPosition hit = mc.theWorld.rayTraceBlocks(start, end, false, true, false);
+            MovingObjectPosition hit = world.rayTraceBlocks(start, end, false, true, false);
             if (hit != null && hit.hitVec != null) {
                 tp.landingValid = true;
                 tp.landingX = hit.hitVec.xCoord;
@@ -177,13 +195,11 @@ public class ProjectileTrackingService {
             mz *= DRAG;
             my -= GRAVITY;
 
-            // Sample the arc sparsely to keep rendering cheap.
             if ((step & 1) == 0) {
                 tp.arcPoints.add(new TrackedProjectile.Point(x, y, z));
             }
         }
 
-        // Fell off the end of the integration window — keep the last sampled point as the landing.
         tp.landingX = x;
         tp.landingY = y;
         tp.landingZ = z;
