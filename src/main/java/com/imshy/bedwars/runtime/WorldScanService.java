@@ -56,13 +56,15 @@ public class WorldScanService {
     }
 
     public void renderTrackedGenerators(BedwarsOverlayRenderer renderer, float partialTicks) {
+        int elapsedSeconds = GeneratorTierSchedule.elapsedSecondsFromMatchStart(state.matchStartTime);
         for (GeneratorEntry generator : state.trackedGenerators.values()) {
             renderer.renderGeneratorLabel(
                     generator.position,
                     generator.isDiamond,
                     generator.resourceCount,
                     generator.hasDesignatedIngotOnTop,
-                    partialTicks);
+                    partialTicks,
+                    elapsedSeconds);
         }
     }
 

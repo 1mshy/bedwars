@@ -112,6 +112,27 @@ public class ModConfig {
     private static boolean matchSummaryCardEnabled = true;
     private static int matchSummaryCardDurationSeconds = 12;
 
+    // Pre-game threat briefing settings
+    private static boolean preGameBriefingEnabled = true;
+    private static int preGameBriefingDurationSeconds = 6;
+
+    // Generator countdown timer settings
+    private static boolean generatorCountdownEnabled = true;
+    private static boolean generatorTierIndicatorEnabled = true;
+
+    // Enemy loadout row settings
+    private static boolean enemyLoadoutNametagEnabled = true;
+    private static boolean enemyLoadoutHudEnabled = true;
+
+    // Final-kill context + ledger settings
+    private static boolean finalKillContextEnabled = true;
+    private static boolean finalKillLedgerHudEnabled = true;
+
+    // Ender pearl tracking settings
+    private static boolean enderPearlTrackingEnabled = true;
+    private static boolean enderPearlOverlayEnabled = true;
+    private static double enderPearlAlertRadius = 8.0;
+
     // Forge config sub-categories used to organise the GUI config screen.
     public static final String CATEGORY_NEW_FEATURES = "newfeatures";
 
@@ -689,6 +710,85 @@ public class ModConfig {
                     3, 60);
             matchSummaryCardDurationSeconds = matchSummaryDurProp.getInt();
 
+            Property preGameBriefingProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "preGameBriefingEnabled",
+                    true,
+                    "Show a pre-game scouting report summarising each enemy team's threat profile as a match starts.");
+            preGameBriefingEnabled = preGameBriefingProp.getBoolean();
+
+            Property preGameBriefingDurProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "preGameBriefingDurationSeconds",
+                    6,
+                    "How long (seconds) the pre-game scouting report stays on screen.",
+                    2, 30);
+            preGameBriefingDurationSeconds = preGameBriefingDurProp.getInt();
+
+            Property generatorCountdownProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "generatorCountdownEnabled",
+                    true,
+                    "Show seconds-until-next-spawn on diamond/emerald generator ESP labels.");
+            generatorCountdownEnabled = generatorCountdownProp.getBoolean();
+
+            Property generatorTierProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "generatorTierIndicatorEnabled",
+                    true,
+                    "Show current generator tier and ETA to next tier on generator ESP labels.");
+            generatorTierIndicatorEnabled = generatorTierProp.getBoolean();
+
+            Property enemyLoadoutNametagProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "enemyLoadoutNametagEnabled",
+                    true,
+                    "Show a compact loadout row (armor tier / best sword / ranged / utility) above enemy nametags.");
+            enemyLoadoutNametagEnabled = enemyLoadoutNametagProp.getBoolean();
+
+            Property enemyLoadoutHudProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "enemyLoadoutHudEnabled",
+                    true,
+                    "Show the compact enemy loadout string in the HUD nearest-enemy block.");
+            enemyLoadoutHudEnabled = enemyLoadoutHudProp.getBoolean();
+
+            Property finalKillContextProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "finalKillContextEnabled",
+                    true,
+                    "Append threat context (stars/FKDR of the victim) to FINAL KILL chat lines.");
+            finalKillContextEnabled = finalKillContextProp.getBoolean();
+
+            Property finalKillLedgerHudProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "finalKillLedgerHudEnabled",
+                    true,
+                    "Show a per-team final-kill tally on the HUD.");
+            finalKillLedgerHudEnabled = finalKillLedgerHudProp.getBoolean();
+
+            Property enderPearlTrackingProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "enderPearlTrackingEnabled",
+                    true,
+                    "Track ender pearls thrown by non-teammates and predict their landing point.");
+            enderPearlTrackingEnabled = enderPearlTrackingProp.getBoolean();
+
+            Property enderPearlOverlayProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "enderPearlOverlayEnabled",
+                    true,
+                    "Draw the predicted ender pearl arc and landing marker in the world.");
+            enderPearlOverlayEnabled = enderPearlOverlayProp.getBoolean();
+
+            Property enderPearlAlertRadiusProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "enderPearlAlertRadius",
+                    8.0,
+                    "Distance (blocks) from the local player or bed at which a pearl landing triggers an alert.",
+                    1.0, 30.0);
+            enderPearlAlertRadius = enderPearlAlertRadiusProp.getDouble();
+
             // Master enable/disable toggle
             Property modEnabledProp = config.get(
                     Configuration.CATEGORY_GENERAL,
@@ -1018,6 +1118,50 @@ public class ModConfig {
 
     public static int getMatchSummaryCardDurationSeconds() {
         return matchSummaryCardDurationSeconds;
+    }
+
+    public static boolean isPreGameBriefingEnabled() {
+        return preGameBriefingEnabled;
+    }
+
+    public static int getPreGameBriefingDurationSeconds() {
+        return preGameBriefingDurationSeconds;
+    }
+
+    public static boolean isGeneratorCountdownEnabled() {
+        return generatorCountdownEnabled;
+    }
+
+    public static boolean isGeneratorTierIndicatorEnabled() {
+        return generatorTierIndicatorEnabled;
+    }
+
+    public static boolean isEnemyLoadoutNametagEnabled() {
+        return enemyLoadoutNametagEnabled;
+    }
+
+    public static boolean isEnemyLoadoutHudEnabled() {
+        return enemyLoadoutHudEnabled;
+    }
+
+    public static boolean isFinalKillContextEnabled() {
+        return finalKillContextEnabled;
+    }
+
+    public static boolean isFinalKillLedgerHudEnabled() {
+        return finalKillLedgerHudEnabled;
+    }
+
+    public static boolean isEnderPearlTrackingEnabled() {
+        return enderPearlTrackingEnabled;
+    }
+
+    public static boolean isEnderPearlOverlayEnabled() {
+        return enderPearlOverlayEnabled;
+    }
+
+    public static double getEnderPearlAlertRadius() {
+        return enderPearlAlertRadius;
     }
 
     public static boolean isModEnabled() {

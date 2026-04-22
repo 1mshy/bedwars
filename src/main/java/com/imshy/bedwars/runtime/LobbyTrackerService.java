@@ -64,6 +64,12 @@ public class LobbyTrackerService {
         state.tabListScanPending = true;
         state.tabListScanScheduledTime = System.currentTimeMillis() + 3000;
 
+        // Schedule the pre-game briefing after the tab list scan completes so
+        // team-danger summaries have cached stats to read from.
+        state.lastPreGameBriefing = null;
+        state.preGameBriefingPending = ModConfig.isPreGameBriefingEnabled();
+        state.preGameBriefingScheduledTime = System.currentTimeMillis() + 3500;
+
         LOGGER.info("Bedwars match started - stat tracking activated");
 
         if (state.autoplayEnabled) {

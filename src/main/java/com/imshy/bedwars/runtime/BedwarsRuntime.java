@@ -11,6 +11,7 @@ import com.imshy.bedwars.render.BedwarsHudRenderer;
 import com.imshy.bedwars.render.BedwarsOverlayRenderer;
 import com.imshy.bedwars.render.LastSeenArrowRenderer;
 import com.imshy.bedwars.render.MatchSummaryRenderer;
+import com.imshy.bedwars.render.PreGameBriefingRenderer;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.ScaledResolution;
@@ -68,10 +69,13 @@ public class BedwarsRuntime {
     private final WorldScanService worldScanService;
     private final EnemyTrackingService enemyTrackingService;
     private final FireballTrackingService fireballTrackingService;
+    private final ProjectileTrackingService projectileTrackingService;
+    private final FinalKillLedger finalKillLedger;
     private final BedwarsOverlayRenderer overlayRenderer;
     private final BedwarsHudRenderer hudRenderer;
     private final LastSeenArrowRenderer lastSeenArrowRenderer;
     private final MatchSummaryRenderer matchSummaryRenderer;
+    private final PreGameBriefingRenderer preGameBriefingRenderer;
 
     public BedwarsRuntime() {
         this.state = new RuntimeState();
@@ -81,10 +85,13 @@ public class BedwarsRuntime {
         this.worldScanService = new WorldScanService(state, matchThreatService);
         this.enemyTrackingService = new EnemyTrackingService(state, matchThreatService);
         this.fireballTrackingService = new FireballTrackingService();
+        this.projectileTrackingService = new ProjectileTrackingService();
+        this.finalKillLedger = new FinalKillLedger();
         this.overlayRenderer = new BedwarsOverlayRenderer();
         this.hudRenderer = new BedwarsHudRenderer();
         this.lastSeenArrowRenderer = new LastSeenArrowRenderer();
         this.matchSummaryRenderer = new MatchSummaryRenderer();
+        this.preGameBriefingRenderer = new PreGameBriefingRenderer();
     }
 
     public boolean isInMatch() {
@@ -116,6 +123,8 @@ public class BedwarsRuntime {
         matchThreatService.clearBedTrackingState();
         enemyTrackingService.clearAll();
         fireballTrackingService.clearAll();
+        projectileTrackingService.clearAll();
+        finalKillLedger.clear();
         PlayerDatabase.getInstance().clearCurrentGame();
         AudioCueManager.clearCooldowns();
     }
@@ -216,6 +225,7 @@ public class BedwarsRuntime {
 
         if (message.contains(HypixelMessages.GAME_START)) {
             if (state.gamePhase != GamePhase.IN_GAME) {
+                finalKillLedger.clear();
                 lobbyTrackerService.activateMatchTracking(mc);
             }
         }
@@ -241,6 +251,8 @@ public class BedwarsRuntime {
                 lobbyTrackerService.clearRecentJoins();
                 enemyTrackingService.clearAll();
                 fireballTrackingService.clearAll();
+                projectileTrackingService.clearAll();
+                finalKillLedger.clear();
                 return;
             }
 
@@ -273,6 +285,8 @@ public class BedwarsRuntime {
                 lobbyTrackerService.clearRecentJoins();
                 enemyTrackingService.clearAll();
                 fireballTrackingService.clearAll();
+                projectileTrackingService.clearAll();
+                finalKillLedger.clear();
                 return;
             }
 
@@ -283,6 +297,10 @@ public class BedwarsRuntime {
                     String deadPlayer = deathMatcher.group(1);
                     enemyTrackingService.handleDeathMessage(deadPlayer);
                 }
+            }
+
+            if (message.contains(HypixelMessages.FINAL_KILL_SUFFIX)) {
+                handleFinalKill(mc, message);
             }
         }
 
@@ -310,6 +328,8 @@ public class BedwarsRuntime {
                 lobbyTrackerService.clearRecentJoins();
                 enemyTrackingService.clearAll();
                 fireballTrackingService.clearAll();
+                projectileTrackingService.clearAll();
+                finalKillLedger.clear();
                 LOGGER.info("Left Bedwars game - unknown outcome");
             }
             state.gamePhase = GamePhase.IDLE;
@@ -384,10 +404,20 @@ public class BedwarsRuntime {
             if (state.gamePhase == GamePhase.IN_GAME || hasDetectedPlayers) {
                 ScaledResolution resolution = new ScaledResolution(mc);
                 hudRenderer.render(resolution, mc, teamDangerAnalyzer, worldScanService, enemyTrackingService,
-                        state.matchStartTime, state.chatDetectedPlayers);
+                        finalKillLedger, state.matchStartTime, state.chatDetectedPlayers);
 
                 if (state.gamePhase == GamePhase.IN_GAME) {
                     lastSeenArrowRenderer.render(resolution, mc, enemyTrackingService);
+                }
+            }
+
+            if (state.lastPreGameBriefing != null && ModConfig.isPreGameBriefingEnabled()) {
+                long briefingTtl = ModConfig.getPreGameBriefingDurationSeconds() * 1000L;
+                if (state.lastPreGameBriefing.isExpired(briefingTtl)) {
+                    state.lastPreGameBriefing = null;
+                } else {
+                    ScaledResolution resolution = new ScaledResolution(mc);
+                    preGameBriefingRenderer.render(resolution, mc, state.lastPreGameBriefing);
                 }
             }
 
@@ -496,6 +526,15 @@ public class BedwarsRuntime {
             lobbyTrackerService.scanTabListPlayers(mc);
         }
 
+        if (state.preGameBriefingPending && currentTime >= state.preGameBriefingScheduledTime) {
+            state.preGameBriefingPending = false;
+            PreGameBriefing briefing = PreGameBriefing.build(mc, teamDangerAnalyzer,
+                    state.lastDetectedMapName);
+            if (briefing != null) {
+                state.lastPreGameBriefing = briefing;
+            }
+        }
+
         matchThreatService.captureEarlySpawnTeammates(mc, currentTime);
 
         if (state.fallbackBedPosition == null) {
@@ -532,6 +571,13 @@ public class BedwarsRuntime {
             fireballTrackingService.scanFireballs(mc);
         } else if (!fireballTrackingService.getTracked().isEmpty()) {
             fireballTrackingService.clearAll();
+        }
+
+        // Ender pearl tracking (gravity-aware)
+        if (ModConfig.isEnderPearlTrackingEnabled()) {
+            projectileTrackingService.scanProjectiles(mc, matchThreatService, state.playerBedBlocks);
+        } else if (!projectileTrackingService.getTracked().isEmpty()) {
+            projectileTrackingService.clearAll();
         }
     }
 
@@ -603,6 +649,9 @@ public class BedwarsRuntime {
             TrackedEnemy tracked = enemyTrackingService.getTrackedEnemy(player.getName());
             if (tracked != null && tracked.hasAnyData()) {
                 overlayRenderer.renderEnemyTrackingLabel(player, tracked, event.x, event.y, event.z);
+                if (ModConfig.isEnemyLoadoutNametagEnabled()) {
+                    overlayRenderer.renderEnemyLoadoutLabel(player, tracked, event.x, event.y, event.z);
+                }
             }
         }
     }
@@ -636,6 +685,10 @@ public class BedwarsRuntime {
 
         if (ModConfig.isFireballDetectionEnabled() && ModConfig.isFireballOverlayEnabled()) {
             overlayRenderer.renderFireballTrajectories(fireballTrackingService.getTracked(), event.partialTicks);
+        }
+
+        if (ModConfig.isEnderPearlTrackingEnabled() && ModConfig.isEnderPearlOverlayEnabled()) {
+            overlayRenderer.renderProjectileTrajectories(projectileTrackingService.getTracked(), event.partialTicks);
         }
 
         if (ModConfig.isBedDefenseAssistEnabled()
@@ -918,6 +971,68 @@ public class BedwarsRuntime {
         if (matcher.matches() && !matcher.group(1).equals(mc.thePlayer.getName())) {
             state.lobbyBaitActive = false;
         }
+    }
+
+    private void handleFinalKill(Minecraft mc, String message) {
+        if (mc == null || mc.thePlayer == null) {
+            return;
+        }
+        Matcher m = HypixelMessages.FINAL_KILL_PATTERN.matcher(message);
+        if (!m.find()) {
+            return;
+        }
+        String victim = m.group(1);
+        if (victim == null || victim.equals(mc.thePlayer.getName())) {
+            // Don't tally self-deaths — local player FINAL KILL already triggers match-end paths.
+            return;
+        }
+
+        // Resolve the victim's team (color + name) from the world scoreboard, if possible.
+        String teamName = null;
+        String teamColor = EnumChatFormatting.GRAY.toString();
+        if (mc.theWorld != null) {
+            for (EntityPlayer p : mc.theWorld.playerEntities) {
+                if (!p.getName().equals(victim)) continue;
+                net.minecraft.scoreboard.Team t = p.getTeam();
+                if (t instanceof net.minecraft.scoreboard.ScorePlayerTeam) {
+                    net.minecraft.scoreboard.ScorePlayerTeam spt = (net.minecraft.scoreboard.ScorePlayerTeam) t;
+                    teamName = spt.getRegisteredName();
+                    String prefix = spt.getColorPrefix();
+                    if (prefix != null && !prefix.isEmpty()) {
+                        for (int i = 0; i < prefix.length() - 1; i++) {
+                            if (prefix.charAt(i) == '\u00a7') {
+                                char code = prefix.charAt(i + 1);
+                                if ((code >= '0' && code <= '9') || (code >= 'a' && code <= 'f')) {
+                                    teamColor = "\u00a7" + code;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        finalKillLedger.recordFinalKill(victim, teamName, teamColor);
+
+        if (!ModConfig.isFinalKillContextEnabled()) {
+            return;
+        }
+
+        BedwarsStats stats = HypixelAPI.getCachedStats(victim);
+        if (stats == null || !stats.isLoaded()) {
+            return;
+        }
+        BedwarsStats.ThreatLevel level = stats.getThreatLevel();
+        if (level == BedwarsStats.ThreatLevel.UNKNOWN) {
+            return;
+        }
+        String contextLine = EnumChatFormatting.GRAY + "   \u2514 removed " + stats.getThreatColor()
+                + level.name() + EnumChatFormatting.GRAY + " threat ("
+                + EnumChatFormatting.WHITE + stats.getStars() + "\u2B50 "
+                + EnumChatFormatting.YELLOW + BedwarsStats.formatRatioShort(stats.getFkdr())
+                + EnumChatFormatting.GRAY + " FKDR)";
+        mc.thePlayer.addChatMessage(new ChatComponentText(contextLine));
     }
 
     private void handleReconnectMessage(Minecraft mc, String message) {

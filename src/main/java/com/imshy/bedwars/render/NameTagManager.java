@@ -57,10 +57,12 @@ public final class NameTagManager {
     public enum NameTagLayer {
         /** Bedwars threat level, star count, and FKDR. Slot 0 – closest to the vanilla name. */
         THREAT_LEVEL(0),
-        /** 👁 INVISIBLE warning indicator. Slot 1 – between threat and hotbar intel. */
-        INVISIBLE(1),
-        /** Diamond/emerald counts, armor protection level, and observed hotbar items. Slot 2 – topmost. */
-        HOTBAR_INTEL(2);
+        /** Compact loadout summary (armor tier, best sword, ranged/utility flags). Slot 1. */
+        LOADOUT(1),
+        /** 👁 INVISIBLE warning indicator. Slot 2 – between loadout and hotbar intel. */
+        INVISIBLE(2),
+        /** Diamond/emerald counts, armor protection level, and observed hotbar items. Slot 3 – topmost. */
+        HOTBAR_INTEL(3);
 
         public final int slot;
 

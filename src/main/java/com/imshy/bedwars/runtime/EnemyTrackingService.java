@@ -109,8 +109,9 @@ public class EnemyTrackingService {
             TrackedEnemy tracked = getOrCreateTracked(player.getName());
             tracked.recordSighting(player.posX, player.posY, player.posZ, currentTime);
 
-            // Scan armor for highest Protection enchantment level
+            // Scan armor for highest Protection enchantment level and material tier
             int maxProt = 0;
+            int maxTier = tracked.armorTier;
             for (int slot = 0; slot < 4; slot++) {
                 ItemStack armor = player.getCurrentArmor(slot);
                 if (armor != null) {
@@ -118,9 +119,14 @@ public class EnemyTrackingService {
                     if (protLevel > maxProt) {
                         maxProt = protLevel;
                     }
+                    int tier = TrackedEnemy.classifyArmorTier(armor.getItem());
+                    if (tier > maxTier) {
+                        maxTier = tier;
+                    }
                 }
             }
             tracked.armorProtectionLevel = maxProt;
+            tracked.armorTier = maxTier;
 
             // Track held item
             ItemStack held = player.getHeldItem();

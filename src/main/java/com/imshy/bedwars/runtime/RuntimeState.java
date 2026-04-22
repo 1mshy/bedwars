@@ -74,6 +74,11 @@ final class RuntimeState {
     // --- Match summary state ---
     MatchSummary lastMatchSummary = null;
 
+    // --- Pre-game briefing state ---
+    PreGameBriefing lastPreGameBriefing = null;
+    boolean preGameBriefingPending = false;
+    long preGameBriefingScheduledTime = 0;
+
     // --- Cross-phase state ---
     boolean autoplayEnabled = false;
     String autoplayMode = "ones";
@@ -142,6 +147,11 @@ final class RuntimeState {
 
         // Match summary state
         lastMatchSummary = null;
+
+        // Pre-game briefing state
+        lastPreGameBriefing = null;
+        preGameBriefingPending = false;
+        preGameBriefingScheduledTime = 0;
 
         // Cross-phase state
         autoplayEnabled = false;

@@ -13,7 +13,8 @@ public class AudioCueManager {
     public enum CueType {
         INVISIBLE_NEARBY,
         BED_DANGER,
-        FIREBALL_INCOMING
+        FIREBALL_INCOMING,
+        ENDER_PEARL_INCOMING
     }
 
     private static final Map<CueType, Long> lastCueTime = new HashMap<CueType, Long>();
@@ -71,6 +72,8 @@ public class AudioCueManager {
                 return ModConfig.isBedDangerAudioCueEnabled();
             case FIREBALL_INCOMING:
                 return ModConfig.isFireballAudioCueEnabled();
+            case ENDER_PEARL_INCOMING:
+                return ModConfig.isEnderPearlTrackingEnabled();
             default:
                 return false;
         }
@@ -84,6 +87,8 @@ public class AudioCueManager {
                 return new SoundProfile("note.bass", 0.8F);
             case FIREBALL_INCOMING:
                 return new SoundProfile("fireworks.blast", 2.0F);
+            case ENDER_PEARL_INCOMING:
+                return new SoundProfile("mob.endermen.portal", 1.3F);
             default:
                 return new SoundProfile("random.click", 1.0F);
         }

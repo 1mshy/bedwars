@@ -49,6 +49,7 @@ public class BedwarsCommand extends CommandBase {
             sendMessage(sender, "/bw all - Check stats for everyone in the lobby");
             sendMessage(sender, "/bw info - Show threats and history players in lobby");
             sendMessage(sender, "/bw autoplay <ones|twos|threes|fours|stop|requeue> - Auto-queue until safe lobby");
+            sendMessage(sender, "/bw afk - Toggle anti-kick movement (strafe left/right every 60s)");
             sendMessage(sender, "/bw rejoin - Re-run game-start setup (bed tracking, generators, player scan)");
             sendMessage(sender, "/bw blacklist <add|remove|list> [player] [reason] - Manage blacklist");
             sendMessage(sender, "/bw history [player] - View encounter history");
@@ -57,6 +58,9 @@ public class BedwarsCommand extends CommandBase {
             sendMessage(sender, "/bw reset - Reset all HUD and runtime state (like a fresh boot)");
             sendMessage(sender, "/bw disable - Disable all automatic features (stat lookup, alerts, HUD, audio)");
             sendMessage(sender, "/bw enable - Re-enable all automatic features");
+            sendMessage(sender, EnumChatFormatting.GRAY + "Tactical features (toggle in config GUI):");
+            sendMessage(sender, EnumChatFormatting.GRAY + "  pre-game briefing, generator countdown, enemy loadout row,");
+            sendMessage(sender, EnumChatFormatting.GRAY + "  final-kill feed, ender-pearl trajectory overlay");
             return;
         }
 

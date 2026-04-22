@@ -5,6 +5,7 @@ import com.imshy.bedwars.HypixelAPI;
 import com.imshy.bedwars.ModConfig;
 import com.imshy.bedwars.runtime.ChatDetectedPlayer;
 import com.imshy.bedwars.runtime.EnemyTrackingService;
+import com.imshy.bedwars.runtime.FinalKillLedger;
 import com.imshy.bedwars.runtime.TabListScanner;
 import com.imshy.bedwars.runtime.TabListScanner.TabListPlayer;
 import com.imshy.bedwars.runtime.TeamDangerAnalyzer;
@@ -47,6 +48,7 @@ public class BedwarsHudRenderer {
     public void render(ScaledResolution resolution, Minecraft mc,
                        TeamDangerAnalyzer teamDangerAnalyzer, WorldScanService worldScanService,
                        EnemyTrackingService enemyTrackingService,
+                       FinalKillLedger finalKillLedger,
                        long matchStartTime, List<ChatDetectedPlayer> chatDetectedPlayers) {
         if (!ModConfig.isModEnabled()) {
             return;
@@ -61,7 +63,7 @@ public class BedwarsHudRenderer {
 
         List<HudLine> lines = new ArrayList<HudLine>();
         buildHudContent(lines, mc, fr, teamDangerAnalyzer, worldScanService, enemyTrackingService,
-                matchStartTime, chatDetectedPlayers);
+                finalKillLedger, matchStartTime, chatDetectedPlayers);
 
         if (lines.isEmpty()) {
             return;
@@ -161,6 +163,7 @@ public class BedwarsHudRenderer {
     private void buildHudContent(List<HudLine> lines, Minecraft mc, FontRenderer fr,
                                   TeamDangerAnalyzer teamDangerAnalyzer, WorldScanService worldScanService,
                                   EnemyTrackingService enemyTrackingService,
+                                  FinalKillLedger finalKillLedger,
                                   long matchStartTime, List<ChatDetectedPlayer> chatDetectedPlayers) {
         boolean addedSection = false;
 
@@ -189,6 +192,15 @@ public class BedwarsHudRenderer {
                 lines.add(HudLine.gap());
             }
             boolean added = addTeamSummarySection(lines, mc, teamDangerAnalyzer, matchStartTime);
+            addedSection = addedSection || added;
+        }
+
+        if (ModConfig.isFinalKillLedgerHudEnabled() && finalKillLedger != null
+                && finalKillLedger.getTotalFinalKills() > 0) {
+            if (addedSection) {
+                lines.add(HudLine.gap());
+            }
+            boolean added = addFinalKillTallySection(lines, finalKillLedger);
             addedSection = addedSection || added;
         }
 
@@ -329,6 +341,35 @@ public class BedwarsHudRenderer {
         }
 
         return true;
+    }
+
+    private boolean addFinalKillTallySection(List<HudLine> lines, FinalKillLedger ledger) {
+        lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "FINAL KILLS"));
+
+        StringBuilder sb = new StringBuilder();
+        long now = System.currentTimeMillis();
+        boolean first = true;
+        for (FinalKillLedger.TeamTally t : ledger.getTallies().values()) {
+            if (!first) {
+                sb.append(EnumChatFormatting.GRAY).append(" \u00b7 ");
+            }
+            sb.append(t.teamColor).append(shortTeamLabel(t.teamName))
+              .append(" ").append(EnumChatFormatting.WHITE).append(t.finalKills);
+            if (t.isOnStreak(now) && t.finalKills >= 2) {
+                sb.append(EnumChatFormatting.RED).append("\u2191");
+            }
+            first = false;
+        }
+        lines.add(HudLine.text(sb.toString()));
+        return true;
+    }
+
+    private static String shortTeamLabel(String teamName) {
+        if (teamName == null || teamName.isEmpty()) {
+            return "?";
+        }
+        String up = teamName.toUpperCase();
+        return up.length() >= 3 ? up.substring(0, 3) : up;
     }
 
     private boolean addTeamSummarySection(List<HudLine> lines, Minecraft mc,
@@ -668,6 +709,14 @@ public class BedwarsHudRenderer {
         // Armor
         if (nearestData.armorProtectionLevel > 0) {
             lines.add(HudLine.text(EnumChatFormatting.YELLOW + "Armor: Prot " + toRoman(nearestData.armorProtectionLevel)));
+        }
+
+        // Compact loadout summary (armor tier / best sword / ranged / utility)
+        if (com.imshy.bedwars.ModConfig.isEnemyLoadoutHudEnabled()) {
+            String loadout = nearestData.formatLoadoutCompact();
+            if (!loadout.isEmpty()) {
+                lines.add(HudLine.text(EnumChatFormatting.GRAY + "Kit: " + EnumChatFormatting.WHITE + loadout));
+            }
         }
 
         // Hotbar items

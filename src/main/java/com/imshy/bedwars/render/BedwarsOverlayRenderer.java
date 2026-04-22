@@ -14,8 +14,10 @@ import net.minecraft.util.BlockPos;
 import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.EnumFacing;
 
+import com.imshy.bedwars.runtime.GeneratorTierSchedule;
 import com.imshy.bedwars.runtime.TrackedEnemy;
 import com.imshy.bedwars.runtime.TrackedFireball;
+import com.imshy.bedwars.runtime.TrackedProjectile;
 
 import org.lwjgl.opengl.GL11;
 
@@ -75,7 +77,7 @@ public class BedwarsOverlayRenderer {
     }
 
     public void renderGeneratorLabel(BlockPos position, boolean isDiamond, int resourceCount,
-            boolean hasDesignatedIngotOnTop, float partialTicks) {
+            boolean hasDesignatedIngotOnTop, float partialTicks, int matchElapsedSeconds) {
         if (resourceCount <= 0) {
             return;
         }
@@ -98,10 +100,36 @@ public class BedwarsOverlayRenderer {
 
         String icon = isDiamond ? "💎" : "💚";
         String color = isDiamond ? EnumChatFormatting.AQUA.toString() : EnumChatFormatting.GREEN.toString();
-        String text = color + icon;
+        StringBuilder textBuilder = new StringBuilder();
+        textBuilder.append(color).append(icon);
         if (hasDesignatedIngotOnTop) {
-            text = text + " " + resourceCount;
+            textBuilder.append(' ').append(resourceCount);
         }
+
+        boolean showTier = com.imshy.bedwars.ModConfig.isGeneratorTierIndicatorEnabled();
+        boolean showCountdown = com.imshy.bedwars.ModConfig.isGeneratorCountdownEnabled();
+        if (matchElapsedSeconds > 0 && (showTier || showCountdown)) {
+            int tier = GeneratorTierSchedule.currentTier(matchElapsedSeconds);
+            int untilSpawn = GeneratorTierSchedule.secondsUntilNextSpawn(matchElapsedSeconds);
+            int untilNextTier = GeneratorTierSchedule.secondsUntilNextTier(matchElapsedSeconds);
+
+            textBuilder.append(EnumChatFormatting.GRAY).append("  ");
+            if (showTier) {
+                textBuilder.append(EnumChatFormatting.GOLD).append("T").append(tier);
+            }
+            if (showCountdown) {
+                if (showTier) {
+                    textBuilder.append(EnumChatFormatting.GRAY).append(" \u00b7 ");
+                }
+                textBuilder.append(EnumChatFormatting.WHITE).append(untilSpawn).append("s");
+            }
+            if (showTier && untilNextTier > 0) {
+                textBuilder.append(EnumChatFormatting.GRAY).append(" \u00b7 T").append(tier + 1)
+                        .append(" in ").append(GeneratorTierSchedule.formatDuration(untilNextTier));
+            }
+        }
+
+        String text = textBuilder.toString();
 
         float distance = (float) Math.sqrt(distSq);
         float baseScale = 0.016666668F * 2.5F;
@@ -196,6 +224,67 @@ public class BedwarsOverlayRenderer {
         worldRenderer.pos(-halfWidth - 2, 10, 0.0D).color(0.5F, 0.0F, 0.5F, bgAlpha).endVertex();
         worldRenderer.pos(halfWidth + 2, 10, 0.0D).color(0.5F, 0.0F, 0.5F, bgAlpha).endVertex();
         worldRenderer.pos(halfWidth + 2, -2, 0.0D).color(0.5F, 0.0F, 0.5F, bgAlpha).endVertex();
+        tessellator.draw();
+        GlStateManager.enableTexture2D();
+
+        fontRenderer.drawString(text, -halfWidth, 0, 0xFFFFFFFF);
+
+        GlStateManager.enableDepth();
+        GlStateManager.depthMask(true);
+        GlStateManager.enableLighting();
+        GlStateManager.disableBlend();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        GlStateManager.popMatrix();
+    }
+
+    public void renderEnemyLoadoutLabel(EntityPlayer player, TrackedEnemy data, double x, double y, double z) {
+        if (data == null) {
+            return;
+        }
+        String loadout = data.formatLoadoutCompact();
+        if (loadout.isEmpty()) {
+            return;
+        }
+
+        Minecraft mc = Minecraft.getMinecraft();
+        FontRenderer fontRenderer = mc.fontRendererObj;
+        RenderManager renderManager = mc.getRenderManager();
+
+        double distance = player.getDistanceSqToEntity(mc.thePlayer);
+        if (distance > 4096.0D) {
+            return;
+        }
+
+        String text = EnumChatFormatting.GRAY + "KIT " + EnumChatFormatting.WHITE + loadout;
+
+        float heightOffset = NameTagManager.getInstance().computeHeightOffset(player, NameTagManager.NameTagLayer.LOADOUT);
+
+        GlStateManager.pushMatrix();
+        GlStateManager.translate((float) x, (float) y + heightOffset, (float) z);
+        GlStateManager.rotate(-renderManager.playerViewY, 0.0F, 1.0F, 0.0F);
+        GlStateManager.rotate(renderManager.playerViewX, 1.0F, 0.0F, 0.0F);
+
+        float scale = 0.016666668F * 1.25F;
+        GlStateManager.scale(-scale, -scale, scale);
+
+        GlStateManager.disableLighting();
+        GlStateManager.depthMask(false);
+        GlStateManager.disableDepth();
+        GlStateManager.enableBlend();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+
+        Tessellator tessellator = Tessellator.getInstance();
+        WorldRenderer worldRenderer = tessellator.getWorldRenderer();
+
+        int textWidth = fontRenderer.getStringWidth(text);
+        int halfWidth = textWidth / 2;
+
+        GlStateManager.disableTexture2D();
+        worldRenderer.begin(7, DefaultVertexFormats.POSITION_COLOR);
+        worldRenderer.pos(-halfWidth - 1, -1, 0.0D).color(0.0F, 0.0F, 0.0F, 0.3F).endVertex();
+        worldRenderer.pos(-halfWidth - 1, 8, 0.0D).color(0.0F, 0.0F, 0.0F, 0.3F).endVertex();
+        worldRenderer.pos(halfWidth + 1, 8, 0.0D).color(0.0F, 0.0F, 0.0F, 0.3F).endVertex();
+        worldRenderer.pos(halfWidth + 1, -1, 0.0D).color(0.0F, 0.0F, 0.0F, 0.3F).endVertex();
         tessellator.draw();
         GlStateManager.enableTexture2D();
 
@@ -389,6 +478,73 @@ public class BedwarsOverlayRenderer {
             double y2 = iy + half;
             double z2 = iz + half;
             drawWireframeBox(worldRenderer, tessellator, x1, y1, z1, x2, y2, z2, r, g, b, 1.0F);
+        }
+
+        GL11.glLineWidth(1.0F);
+        GlStateManager.enableDepth();
+        GlStateManager.depthMask(true);
+        GlStateManager.enableTexture2D();
+        GlStateManager.enableLighting();
+        GlStateManager.disableBlend();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        GlStateManager.popMatrix();
+    }
+
+    public void renderProjectileTrajectories(Collection<TrackedProjectile> projectiles, float partialTicks) {
+        if (projectiles == null || projectiles.isEmpty()) {
+            return;
+        }
+
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.thePlayer == null) {
+            return;
+        }
+
+        double playerX = mc.thePlayer.lastTickPosX + (mc.thePlayer.posX - mc.thePlayer.lastTickPosX) * partialTicks;
+        double playerY = mc.thePlayer.lastTickPosY + (mc.thePlayer.posY - mc.thePlayer.lastTickPosY) * partialTicks;
+        double playerZ = mc.thePlayer.lastTickPosZ + (mc.thePlayer.posZ - mc.thePlayer.lastTickPosZ) * partialTicks;
+
+        GlStateManager.pushMatrix();
+        GlStateManager.disableLighting();
+        GlStateManager.disableTexture2D();
+        GlStateManager.enableBlend();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GlStateManager.depthMask(false);
+        GlStateManager.disableDepth();
+        GL11.glLineWidth(2.5F);
+
+        Tessellator tessellator = Tessellator.getInstance();
+        WorldRenderer worldRenderer = tessellator.getWorldRenderer();
+
+        for (TrackedProjectile tp : projectiles) {
+            float r;
+            float g;
+            float b;
+            if (tp.threatening) {
+                r = 1.0F; g = 0.3F; b = 0.3F;
+            } else {
+                r = 0.6F; g = 0.2F; b = 1.0F;
+            }
+
+            // Draw poly-line arc through the integrated path.
+            if (tp.arcPoints.size() >= 2) {
+                worldRenderer.begin(GL11.GL_LINE_STRIP, DefaultVertexFormats.POSITION_COLOR);
+                for (TrackedProjectile.Point p : tp.arcPoints) {
+                    worldRenderer.pos(p.x - playerX, p.y - playerY, p.z - playerZ)
+                                  .color(r, g, b, 1.0F).endVertex();
+                }
+                tessellator.draw();
+            }
+
+            // Wireframe landing marker (~0.6 block cube).
+            double lx = tp.landingX - playerX;
+            double ly = tp.landingY - playerY;
+            double lz = tp.landingZ - playerZ;
+            double half = 0.3;
+            drawWireframeBox(worldRenderer, tessellator,
+                    lx - half, ly - half, lz - half,
+                    lx + half, ly + half, lz + half,
+                    r, g, b, 1.0F);
         }
 
         GL11.glLineWidth(1.0F);
