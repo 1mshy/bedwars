@@ -62,7 +62,6 @@ public class WorldScanService {
                     generator.position,
                     generator.isDiamond,
                     generator.resourceCount,
-                    generator.hasDesignatedIngotOnTop,
                     partialTicks,
                     elapsedSeconds);
         }

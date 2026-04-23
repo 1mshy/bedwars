@@ -77,10 +77,7 @@ public class BedwarsOverlayRenderer {
     }
 
     public void renderGeneratorLabel(BlockPos position, boolean isDiamond, int resourceCount,
-            boolean hasDesignatedIngotOnTop, float partialTicks, int matchElapsedSeconds) {
-        if (resourceCount <= 0) {
-            return;
-        }
+            float partialTicks, int matchElapsedSeconds) {
         Minecraft mc = Minecraft.getMinecraft();
         FontRenderer fontRenderer = mc.fontRendererObj;
 
@@ -98,38 +95,11 @@ public class BedwarsOverlayRenderer {
             return;
         }
 
-        String icon = isDiamond ? "💎" : "💚";
+        int untilSpawn = GeneratorTierSchedule.secondsUntilNextSpawn(matchElapsedSeconds);
         String color = isDiamond ? EnumChatFormatting.AQUA.toString() : EnumChatFormatting.GREEN.toString();
-        StringBuilder textBuilder = new StringBuilder();
-        textBuilder.append(color).append(icon);
-        if (hasDesignatedIngotOnTop) {
-            textBuilder.append(' ').append(resourceCount);
-        }
-
-        boolean showTier = com.imshy.bedwars.ModConfig.isGeneratorTierIndicatorEnabled();
-        boolean showCountdown = com.imshy.bedwars.ModConfig.isGeneratorCountdownEnabled();
-        if (matchElapsedSeconds > 0 && (showTier || showCountdown)) {
-            int tier = GeneratorTierSchedule.currentTier(matchElapsedSeconds);
-            int untilSpawn = GeneratorTierSchedule.secondsUntilNextSpawn(matchElapsedSeconds);
-            int untilNextTier = GeneratorTierSchedule.secondsUntilNextTier(matchElapsedSeconds);
-
-            textBuilder.append(EnumChatFormatting.GRAY).append("  ");
-            if (showTier) {
-                textBuilder.append(EnumChatFormatting.GOLD).append("T").append(tier);
-            }
-            if (showCountdown) {
-                if (showTier) {
-                    textBuilder.append(EnumChatFormatting.GRAY).append(" \u00b7 ");
-                }
-                textBuilder.append(EnumChatFormatting.WHITE).append(untilSpawn).append("s");
-            }
-            if (showTier && untilNextTier > 0) {
-                textBuilder.append(EnumChatFormatting.GRAY).append(" \u00b7 T").append(tier + 1)
-                        .append(" in ").append(GeneratorTierSchedule.formatDuration(untilNextTier));
-            }
-        }
-
-        String text = textBuilder.toString();
+        String text = color + resourceCount
+                + EnumChatFormatting.GRAY + " \u00b7 "
+                + EnumChatFormatting.WHITE + untilSpawn + "s";
 
         float distance = (float) Math.sqrt(distSq);
         float baseScale = 0.016666668F * 2.5F;

@@ -116,10 +116,6 @@ public class ModConfig {
     private static boolean preGameBriefingEnabled = true;
     private static int preGameBriefingDurationSeconds = 6;
 
-    // Generator countdown timer settings
-    private static boolean generatorCountdownEnabled = true;
-    private static boolean generatorTierIndicatorEnabled = true;
-
     // Enemy loadout row settings
     private static boolean enemyLoadoutNametagEnabled = true;
     private static boolean enemyLoadoutHudEnabled = true;
@@ -726,20 +722,6 @@ public class ModConfig {
                     2, 30);
             preGameBriefingDurationSeconds = preGameBriefingDurProp.getInt();
 
-            Property generatorCountdownProp = config.get(
-                    CATEGORY_NEW_FEATURES,
-                    "generatorCountdownEnabled",
-                    true,
-                    "Show seconds-until-next-spawn on diamond/emerald generator ESP labels.");
-            generatorCountdownEnabled = generatorCountdownProp.getBoolean();
-
-            Property generatorTierProp = config.get(
-                    CATEGORY_NEW_FEATURES,
-                    "generatorTierIndicatorEnabled",
-                    true,
-                    "Show current generator tier and ETA to next tier on generator ESP labels.");
-            generatorTierIndicatorEnabled = generatorTierProp.getBoolean();
-
             Property enemyLoadoutNametagProp = config.get(
                     CATEGORY_NEW_FEATURES,
                     "enemyLoadoutNametagEnabled",
@@ -1134,14 +1116,6 @@ public class ModConfig {
 
     public static int getPreGameBriefingDurationSeconds() {
         return preGameBriefingDurationSeconds;
-    }
-
-    public static boolean isGeneratorCountdownEnabled() {
-        return generatorCountdownEnabled;
-    }
-
-    public static boolean isGeneratorTierIndicatorEnabled() {
-        return generatorTierIndicatorEnabled;
     }
 
     public static boolean isEnemyLoadoutNametagEnabled() {
