@@ -1110,8 +1110,11 @@ public class ModConfig {
         return matchSummaryCardDurationSeconds;
     }
 
+    /**
+     * Pre-game “scouting report” (center screen box) is disabled; the feature was noisy at match start.
+     */
     public static boolean isPreGameBriefingEnabled() {
-        return preGameBriefingEnabled;
+        return false;
     }
 
     public static int getPreGameBriefingDurationSeconds() {
