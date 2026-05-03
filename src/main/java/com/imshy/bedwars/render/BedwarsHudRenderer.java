@@ -345,31 +345,8 @@ public class BedwarsHudRenderer {
 
     private boolean addFinalKillTallySection(List<HudLine> lines, FinalKillLedger ledger) {
         lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "FINAL KILLS"));
-
-        StringBuilder sb = new StringBuilder();
-        long now = System.currentTimeMillis();
-        boolean first = true;
-        for (FinalKillLedger.TeamTally t : ledger.getTallies().values()) {
-            if (!first) {
-                sb.append(EnumChatFormatting.GRAY).append(" \u00b7 ");
-            }
-            sb.append(t.teamColor).append(shortTeamLabel(t.teamName))
-              .append(" ").append(EnumChatFormatting.WHITE).append(t.finalKills);
-            if (t.isOnStreak(now) && t.finalKills >= 2) {
-                sb.append(EnumChatFormatting.RED).append("\u2191");
-            }
-            first = false;
-        }
-        lines.add(HudLine.text(sb.toString()));
+        lines.add(HudLine.text(EnumChatFormatting.WHITE.toString() + ledger.getTotalFinalKills()));
         return true;
-    }
-
-    private static String shortTeamLabel(String teamName) {
-        if (teamName == null || teamName.isEmpty()) {
-            return "?";
-        }
-        String up = teamName.toUpperCase();
-        return up.length() >= 3 ? up.substring(0, 3) : up;
     }
 
     private boolean addTeamSummarySection(List<HudLine> lines, Minecraft mc,
