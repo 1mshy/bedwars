@@ -6,8 +6,8 @@ import com.imshy.bedwars.HypixelAPI;
 import com.imshy.bedwars.runtime.TabListScanner.TabListPlayer;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.scoreboard.ScorePlayerTeam;
+import net.minecraft.scoreboard.Scoreboard;
 import net.minecraft.scoreboard.Team;
 import net.minecraft.util.EnumChatFormatting;
 
@@ -141,38 +141,68 @@ public class TeamDangerAnalyzer {
     }
 
     private List<TeamDangerEntry> buildTeamDangerSummaryFromWorld(Minecraft mc) {
+        // Determine local player's own team key from the scoreboard.
         String ownTeamKey = null;
-        Team ownTeam = mc.thePlayer.getTeam();
-        if (ownTeam instanceof ScorePlayerTeam) {
-            ownTeamKey = ((ScorePlayerTeam) ownTeam).getRegisteredName();
+        if (mc.theWorld != null && mc.thePlayer != null) {
+            Team ownTeam = mc.thePlayer.getTeam();
+            if (ownTeam instanceof ScorePlayerTeam) {
+                ownTeamKey = ((ScorePlayerTeam) ownTeam).getRegisteredName();
+            }
         }
 
-        Map<String, TeamDangerEntry> byTeam = new HashMap<String, TeamDangerEntry>();
-        for (EntityPlayer player : mc.theWorld.playerEntities) {
-            Team team = player.getTeam();
-            if (!(team instanceof ScorePlayerTeam)) {
-                continue;
-            }
+        Scoreboard scoreboard = mc.theWorld != null ? mc.theWorld.getScoreboard() : null;
 
-            ScorePlayerTeam scoreTeam = (ScorePlayerTeam) team;
-            String teamKey = scoreTeam.getRegisteredName();
-            if (teamKey == null) {
+        // Use the full tab-list so we see every lobby player, not just those in render distance.
+        List<TabListPlayer> allPlayers = TabListScanner.scanAllPlayers(mc);
+        Character ownColorCode = TabListScanner.getLocalPlayerColorCode(mc);
+
+        Map<String, TeamDangerEntry> byTeam = new HashMap<String, TeamDangerEntry>();
+
+        for (TabListPlayer tp : allPlayers) {
+            // Try to resolve scoreboard team for this player by name.
+            ScorePlayerTeam scoreTeam = scoreboard != null
+                    ? scoreboard.getPlayersTeam(tp.name)
+                    : null;
+
+            String teamKey;
+            String teamDisplayName;
+            String teamColorPrefix;
+            boolean isOwn;
+
+            if (scoreTeam != null) {
+                teamKey = scoreTeam.getRegisteredName();
+                teamDisplayName = getTeamDisplayName(scoreTeam);
+                teamColorPrefix = getTeamColorPrefix(scoreTeam);
+                isOwn = teamKey.equals(ownTeamKey);
+            } else if (tp.teamColorCode != null) {
+                // Scoreboard not yet populated — fall back to tab-list color code.
+                teamKey = "color_" + tp.teamColorCode;
+                teamDisplayName = tp.teamName;
+                teamColorPrefix = tp.teamColorPrefix;
+                isOwn = ownColorCode != null && tp.teamColorCode.equals(ownColorCode);
+            } else {
                 continue;
             }
 
             TeamDangerEntry summary = byTeam.get(teamKey);
             if (summary == null) {
-                summary = new TeamDangerEntry(
-                        getTeamDisplayName(scoreTeam),
-                        getTeamColorPrefix(scoreTeam),
-                        teamKey.equals(ownTeamKey));
+                summary = new TeamDangerEntry(teamDisplayName, teamColorPrefix, isOwn);
                 byTeam.put(teamKey, summary);
             }
 
             summary.totalPlayers++;
 
-            BedwarsStats stats = HypixelAPI.getCachedStats(player.getName());
+            BedwarsStats stats = HypixelAPI.getCachedStats(tp.name);
             if (stats == null || !stats.isLoaded()) {
+                if (!state.pendingTabListFetches.contains(tp.name) && HypixelAPI.hasApiKey()) {
+                    state.pendingTabListFetches.add(tp.name);
+                    HypixelAPI.fetchStatsAsync(tp.name, new HypixelAPI.StatsCallback() {
+                        @Override
+                        public void onStatsLoaded(BedwarsStats s) { }
+                        @Override
+                        public void onError(String error) { }
+                    });
+                }
                 continue;
             }
 
