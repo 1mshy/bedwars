@@ -600,6 +600,11 @@ public class BedwarsRuntime {
             return;
         }
 
+        // Hypixel's anticheat / spawn-cage desync briefly reports players ~100 blocks high at game start.
+        if (mc.thePlayer != null && Math.abs(event.y - mc.thePlayer.posY) > 50.0D) {
+            return;
+        }
+
         BedwarsStats stats = HypixelAPI.getCachedStats(player.getName());
         if (stats == null || !stats.isLoaded()) {
             return;

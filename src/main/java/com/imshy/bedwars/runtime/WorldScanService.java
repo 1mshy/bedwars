@@ -58,6 +58,9 @@ public class WorldScanService {
     public void renderTrackedGenerators(BedwarsOverlayRenderer renderer, float partialTicks) {
         int elapsedSeconds = GeneratorTierSchedule.elapsedSecondsFromMatchStart(state.matchStartTime);
         for (GeneratorEntry generator : state.trackedGenerators.values()) {
+            if (!generator.hasEverHadResource) {
+                continue;
+            }
             renderer.renderGeneratorLabel(
                     generator.position,
                     generator.isDiamond,
@@ -225,6 +228,12 @@ public class WorldScanService {
                     boolean isEmerald = (block == Blocks.emerald_block);
 
                     if (isDiamond || isEmerald) {
+                        // Many maps decorate the spawner pad with adjacent diamond/emerald blocks; collapse
+                        // each cluster to a single canonical block (the lex-greatest x,z) so we emit one tag.
+                        if (hasDominantSameTypeNeighbor(mc, checkPos, isDiamond)) {
+                            continue;
+                        }
+
                         observedGenerators.add(checkPos);
 
                         GeneratorEntry existing = state.trackedGenerators.get(checkPos);
@@ -289,6 +298,9 @@ public class WorldScanService {
         generator.lastObservedTimestampMs = now;
         generator.lastPredictionTimestampMs = now;
         generator.lastUpdate = now;
+        if (observedCount > 0) {
+            generator.hasEverHadResource = true;
+        }
         if (observedCount >= MIN_PREDICTION_BASELINE) {
             generator.hasPredictionBaseline = true;
         }
@@ -423,6 +435,30 @@ public class WorldScanService {
         }
     }
 
+    /**
+     * True when an adjacent same-type generator candidate exists at strictly greater (x, z) lex
+     * order. The strict-order check breaks ties so exactly one block in any cluster survives.
+     */
+    private boolean hasDominantSameTypeNeighbor(Minecraft mc, BlockPos pos, boolean isDiamond) {
+        Block target = isDiamond ? Blocks.diamond_block : Blocks.emerald_block;
+        int x = pos.getX();
+        int y = pos.getY();
+        int z = pos.getZ();
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                if (dx == 0 && dz == 0) continue;
+                int nx = x + dx;
+                int nz = z + dz;
+                if (nx < x || (nx == x && nz <= z)) continue;
+                BlockPos neighbor = new BlockPos(nx, y, nz);
+                if (mc.theWorld.getBlockState(neighbor).getBlock() != target) continue;
+                if (!mc.theWorld.isAirBlock(neighbor.up())) continue;
+                return true;
+            }
+        }
+        return false;
+    }
+
     private GeneratorResourceScan scanGeneratorResources(Minecraft mc, BlockPos generatorPos, boolean isDiamond) {
         int count = 0;
         boolean hasDesignatedIngotOnTop = false;
@@ -482,6 +518,7 @@ public class WorldScanService {
         long estimatedGenerationIntervalMs;
         long lastPredictionTimestampMs;
         boolean hasPredictionBaseline;
+        boolean hasEverHadResource;
 
         GeneratorEntry(BlockPos pos, boolean diamond) {
             this.position = pos;
@@ -495,6 +532,7 @@ public class WorldScanService {
             this.estimatedGenerationIntervalMs = 0L;
             this.lastPredictionTimestampMs = 0L;
             this.hasPredictionBaseline = false;
+            this.hasEverHadResource = false;
         }
     }
 
