@@ -521,6 +521,53 @@ public class BedwarsRuntime {
             }
         }
 
+        // Scoreboard-based in-game polling: update team-status snapshot and detect
+        // end-of-match when the sidebar loses all team rows (disconnection, phase
+        // change, or Hypixel removing the objective on match completion).
+        if (state.gamePhase == GamePhase.IN_GAME
+                && !state.disconnectedFromGame
+                && state.clientTickCounter - state.lastScoreboardPhaseScanTick >= 10) {
+            state.lastScoreboardPhaseScanTick = state.clientTickCounter;
+
+            java.util.List<ScoreboardGameStateDetector.TeamStatus> statuses =
+                    ScoreboardGameStateDetector.parseTeamStatuses(mc);
+
+            // Refresh the team-status map
+            state.scoreboardTeamStatuses.clear();
+            for (ScoreboardGameStateDetector.TeamStatus ts : statuses) {
+                state.scoreboardTeamStatuses.put(ts.teamName, ts);
+            }
+
+            // End-of-match detection: sidebar disappears / loses all team rows
+            // Only start counting after the match has been running >= 30 s to
+            // avoid false positives from the objective not being set yet.
+            long matchRunMs = System.currentTimeMillis() - state.matchStartTime;
+            if (statuses.isEmpty() && matchRunMs >= 30_000L) {
+                state.scoreboardEndMissCount++;
+                if (state.scoreboardEndMissCount >= 3) {
+                    LOGGER.info("IN_GAME -> IDLE via scoreboard disappearance (miss count reached)");
+                    captureMatchSummary(MatchSummary.Outcome.UNKNOWN);
+                    PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.UNKNOWN);
+                    PlayerDatabase.getInstance().clearCurrentGame();
+                    state.gamePhase = GamePhase.IDLE;
+                    state.disconnectedFromGame = false;
+                    state.scoreboardEndMissCount = 0;
+                    state.chatDetectedPlayers.clear();
+                    state.chatDetectedStartTime = 0;
+                    state.lobbyBaitActive = false;
+                    matchThreatService.clearBedTrackingState();
+                    lobbyTrackerService.clearRecentJoins();
+                    enemyTrackingService.clearAll();
+                    fireballTrackingService.clearAll();
+                    projectileTrackingService.clearAll();
+                    finalKillLedger.clear();
+                    return;
+                }
+            } else {
+                state.scoreboardEndMissCount = 0;
+            }
+        }
+
         if (state.gamePhase != GamePhase.IN_GAME) {
             worldScanService.clearTrackedGenerators();
             return;

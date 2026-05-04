@@ -345,6 +345,21 @@ public class MatchThreatService {
             }
         }
 
+        // Scoreboard YOU-suffix fast path: if we know the local player's team
+        // colour from the sidebar, any player whose tab-list name shares that
+        // colour is definitively a teammate.
+        String ownTeamColorCode = ScoreboardGameStateDetector.getOwnTeamColorCode(mc);
+        if (ownTeamColorCode != null) {
+            Character selfTabColor  = getTabNamePrimaryColorCode(mc, self);
+            Character otherTabColor = getTabNamePrimaryColorCode(mc, other);
+            if (selfTabColor != null && ownTeamColorCode.endsWith(String.valueOf(selfTabColor))) {
+                // Self confirmed on own team; other is a teammate iff same colour
+                if (otherTabColor != null) {
+                    return selfTabColor.charValue() == otherTabColor.charValue();
+                }
+            }
+        }
+
         // Armor-color check: compare leather helmet/chestplate dye color
         if (ArmorColorTeamDetector.hasSameTeamColor(self, other)) {
             return true;

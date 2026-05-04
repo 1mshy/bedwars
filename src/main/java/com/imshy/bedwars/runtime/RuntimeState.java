@@ -23,6 +23,11 @@ final class RuntimeState {
     long matchStartTime = 0;
     long clientTickCounter = 0;
     long lastScoreboardPhaseScanTick = 0;
+    /** Consecutive scoreboard-poll ticks that found no in-game team rows while IN_GAME. */
+    int scoreboardEndMissCount = 0;
+    /** Latest parsed snapshot of all sidebar team rows, updated each scoreboard-poll tick. */
+    final java.util.Map<String, ScoreboardGameStateDetector.TeamStatus> scoreboardTeamStatuses =
+            new java.util.LinkedHashMap<String, ScoreboardGameStateDetector.TeamStatus>();
 
     // --- Pre-game state ---
     long joinBurstTickStamp = -1;
@@ -100,6 +105,8 @@ final class RuntimeState {
         matchStartTime = 0;
         clientTickCounter = 0;
         lastScoreboardPhaseScanTick = 0;
+        scoreboardEndMissCount = 0;
+        scoreboardTeamStatuses.clear();
 
         // Pre-game state
         joinBurstTickStamp = -1;
