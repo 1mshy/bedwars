@@ -17,7 +17,9 @@ import net.minecraft.util.BlockPos;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.EnumChatFormatting;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -61,8 +63,9 @@ public class WorldScanService {
             if (!generator.hasEverHadResource) {
                 continue;
             }
+            BlockPos labelPos = generator.labelPosition != null ? generator.labelPosition : generator.position;
             renderer.renderGeneratorLabel(
-                    generator.position,
+                    labelPos,
                     generator.isDiamond,
                     generator.resourceCount,
                     partialTicks,
@@ -229,8 +232,8 @@ public class WorldScanService {
 
                     if (isDiamond || isEmerald) {
                         // Many maps decorate the spawner pad with adjacent diamond/emerald blocks; collapse
-                        // each cluster to a single canonical block (the lex-greatest x,z) so we emit one tag.
-                        if (hasDominantSameTypeNeighbor(mc, checkPos, isDiamond)) {
+                        // each cluster to a single canonical block (the lex-greatest x,z) so we track one entry.
+                        if (isCollapsedClusterMember(mc, checkPos, isDiamond)) {
                             continue;
                         }
 
@@ -244,6 +247,7 @@ public class WorldScanService {
 
                         GeneratorResourceScan scan = scanGeneratorResources(mc, checkPos, isDiamond);
                         updateGeneratorFromObservedScan(existing, scan.resourceCount, scan.hasDesignatedIngotOnTop, now);
+                        existing.labelPosition = pickGeneratorLabelPosition(mc, checkPos, isDiamond);
                     }
                 }
             }
@@ -256,6 +260,14 @@ public class WorldScanService {
             BlockPos generatorPos = entry.getKey();
 
             if (playerPos.distanceSq(generatorPos) > scanRange * scanRange) {
+                iterator.remove();
+                continue;
+            }
+
+            // Drop entries that are no longer the canonical cluster anchor (cluster topology
+            // changed, e.g. a neighbouring same-type block was placed/destroyed).
+            if (!observedGenerators.contains(generatorPos)
+                    && isCollapsedClusterMember(mc, generatorPos, generator.isDiamond)) {
                 iterator.remove();
                 continue;
             }
@@ -436,27 +448,114 @@ public class WorldScanService {
     }
 
     /**
-     * True when an adjacent same-type generator candidate exists at strictly greater (x, z) lex
-     * order. The strict-order check breaks ties so exactly one block in any cluster survives.
+     * True when this block is part of a multi-block generator pad whose canonical anchor
+     * (lex-greatest x,z,y) is a different block. Returns false for the canonical block itself
+     * and for isolated single-block pads. Cluster discovery traverses through same-type blocks
+     * regardless of whether they have air above, so a pad split by decoration (glowstone,
+     * beacon) still collapses to one anchor.
      */
-    private boolean hasDominantSameTypeNeighbor(Minecraft mc, BlockPos pos, boolean isDiamond) {
-        Block target = isDiamond ? Blocks.diamond_block : Blocks.emerald_block;
-        int x = pos.getX();
-        int y = pos.getY();
-        int z = pos.getZ();
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dz = -1; dz <= 1; dz++) {
-                if (dx == 0 && dz == 0) continue;
-                int nx = x + dx;
-                int nz = z + dz;
-                if (nx < x || (nx == x && nz <= z)) continue;
-                BlockPos neighbor = new BlockPos(nx, y, nz);
-                if (mc.theWorld.getBlockState(neighbor).getBlock() != target) continue;
-                if (!mc.theWorld.isAirBlock(neighbor.up())) continue;
-                return true;
+    private boolean isCollapsedClusterMember(Minecraft mc, BlockPos pos, boolean isDiamond) {
+        Set<BlockPos> cluster = findGeneratorCluster(mc, pos, isDiamond);
+        if (cluster.size() <= 1) {
+            return false;
+        }
+        BlockPos canonical = pos;
+        for (BlockPos p : cluster) {
+            if (lexGreater(p, canonical)) {
+                canonical = p;
             }
         }
-        return false;
+        return !pos.equals(canonical);
+    }
+
+    private static boolean lexGreater(BlockPos a, BlockPos b) {
+        if (a.getX() != b.getX()) return a.getX() > b.getX();
+        if (a.getZ() != b.getZ()) return a.getZ() > b.getZ();
+        return a.getY() > b.getY();
+    }
+
+    private Set<BlockPos> findGeneratorCluster(Minecraft mc, BlockPos start, boolean isDiamond) {
+        Block target = isDiamond ? Blocks.diamond_block : Blocks.emerald_block;
+        Set<BlockPos> result = new HashSet<BlockPos>();
+        Deque<BlockPos> queue = new ArrayDeque<BlockPos>();
+        queue.add(start);
+        while (!queue.isEmpty() && result.size() < 32) {
+            BlockPos cur = queue.removeFirst();
+            if (!result.add(cur)) continue;
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if (dx == 0 && dz == 0) continue;
+                    BlockPos n = new BlockPos(cur.getX() + dx, cur.getY(), cur.getZ() + dz);
+                    if (result.contains(n)) continue;
+                    if (!mc.theWorld.isBlockLoaded(n)) continue;
+                    if (mc.theWorld.getBlockState(n).getBlock() != target) continue;
+                    queue.add(n);
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Pick the cluster member that should host the generator label: the candidate (block with
+     * air above) closest to dropped diamonds/emeralds. Falls back to the canonical anchor when
+     * no items are present.
+     */
+    private BlockPos pickGeneratorLabelPosition(Minecraft mc, BlockPos anchor, boolean isDiamond) {
+        Set<BlockPos> cluster = findGeneratorCluster(mc, anchor, isDiamond);
+        List<BlockPos> candidates = new ArrayList<BlockPos>();
+        for (BlockPos p : cluster) {
+            if (mc.theWorld.isAirBlock(p.up())) candidates.add(p);
+        }
+        if (candidates.size() <= 1) {
+            return anchor;
+        }
+
+        double centerX = 0.0D;
+        double centerZ = 0.0D;
+        for (BlockPos p : candidates) {
+            centerX += p.getX() + 0.5D;
+            centerZ += p.getZ() + 0.5D;
+        }
+        centerX /= candidates.size();
+        centerZ /= candidates.size();
+        int padTopY = anchor.getY() + 1;
+
+        double itemSumX = 0.0D;
+        double itemSumZ = 0.0D;
+        int itemCount = 0;
+        for (Entity entity : mc.theWorld.loadedEntityList) {
+            if (!(entity instanceof EntityItem)) continue;
+            EntityItem item = (EntityItem) entity;
+            if (!isDesignatedGeneratorItem(item, isDiamond)) continue;
+            double dx = item.posX - centerX;
+            double dz = item.posZ - centerZ;
+            if (Math.abs(item.posY - padTopY) > 4.0D) continue;
+            if (dx * dx + dz * dz > 9.0D) continue;
+            itemSumX += item.posX;
+            itemSumZ += item.posZ;
+            itemCount++;
+        }
+
+        if (itemCount == 0) {
+            return anchor;
+        }
+
+        double targetX = itemSumX / itemCount;
+        double targetZ = itemSumZ / itemCount;
+
+        BlockPos best = anchor;
+        double bestDsq = Double.MAX_VALUE;
+        for (BlockPos p : candidates) {
+            double dx = (p.getX() + 0.5D) - targetX;
+            double dz = (p.getZ() + 0.5D) - targetZ;
+            double dsq = dx * dx + dz * dz;
+            if (dsq < bestDsq) {
+                bestDsq = dsq;
+                best = p;
+            }
+        }
+        return best;
     }
 
     private GeneratorResourceScan scanGeneratorResources(Minecraft mc, BlockPos generatorPos, boolean isDiamond) {
@@ -508,6 +607,7 @@ public class WorldScanService {
 
     static class GeneratorEntry {
         BlockPos position;
+        BlockPos labelPosition;
         boolean isDiamond;
         int resourceCount;
         boolean hasDesignatedIngotOnTop;
@@ -522,6 +622,7 @@ public class WorldScanService {
 
         GeneratorEntry(BlockPos pos, boolean diamond) {
             this.position = pos;
+            this.labelPosition = pos;
             this.isDiamond = diamond;
             this.resourceCount = 0;
             this.hasDesignatedIngotOnTop = false;
