@@ -22,6 +22,7 @@ final class RuntimeState {
     long disconnectTime = 0;
     long matchStartTime = 0;
     long clientTickCounter = 0;
+    long lastScoreboardPhaseScanTick = 0;
 
     // --- Pre-game state ---
     long joinBurstTickStamp = -1;
@@ -98,6 +99,7 @@ final class RuntimeState {
         disconnectTime = 0;
         matchStartTime = 0;
         clientTickCounter = 0;
+        lastScoreboardPhaseScanTick = 0;
 
         // Pre-game state
         joinBurstTickStamp = -1;

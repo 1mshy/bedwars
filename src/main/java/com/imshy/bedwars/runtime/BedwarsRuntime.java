@@ -507,6 +507,20 @@ public class BedwarsRuntime {
             }
         }
 
+        // Scoreboard-based game-start detection (covers alt modes whose intro
+        // chat doesn't match HypixelMessages.GAME_START). Only kicks in when
+        // we're already in PRE_GAME — never escalates from IDLE, since the
+        // mode-select lobby also has "BED WARS" in its sidebar.
+        if (state.gamePhase == GamePhase.PRE_GAME
+                && state.clientTickCounter - state.lastScoreboardPhaseScanTick >= 20) {
+            state.lastScoreboardPhaseScanTick = state.clientTickCounter;
+            if (ScoreboardGameStateDetector.isMatchInProgress(mc)) {
+                LOGGER.info("Bedwars match start detected via scoreboard (chat trigger missed)");
+                finalKillLedger.clear();
+                lobbyTrackerService.activateMatchTracking(mc);
+            }
+        }
+
         if (state.gamePhase != GamePhase.IN_GAME) {
             worldScanService.clearTrackedGenerators();
             return;
