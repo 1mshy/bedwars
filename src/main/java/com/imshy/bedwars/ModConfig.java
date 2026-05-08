@@ -130,6 +130,12 @@ public class ModConfig {
     private static double enderPearlAlertRadius = 8.0;
     private static boolean enderPearlPreviewEnabled = true;
 
+    // Anti-cheat / hacker detection settings
+    private static boolean antiCheatEnabled = true;
+    private static boolean antiCheatAutoBlockEnabled = true;
+    private static boolean antiCheatScaffoldEnabled = true;
+    private static int antiCheatFlagCooldownMs = 10000;
+
     // Forge config sub-categories used to organise the GUI config screen.
     public static final String CATEGORY_NEW_FEATURES = "newfeatures";
 
@@ -779,6 +785,36 @@ public class ModConfig {
                     "Show a predicted arc and landing marker for your own ender pearls when holding one.");
             enderPearlPreviewEnabled = enderPearlPreviewProp.getBoolean();
 
+            // Anti-cheat / hacker detection
+            Property antiCheatEnabledProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "antiCheatEnabled",
+                    true,
+                    "Master toggle for client-side hacker detection (autoblock, scaffold).");
+            antiCheatEnabled = antiCheatEnabledProp.getBoolean();
+
+            Property antiCheatAutoBlockProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "antiCheatAutoBlockEnabled",
+                    true,
+                    "Flag players that swing a sword while still in the blocking-use state (autoblock).");
+            antiCheatAutoBlockEnabled = antiCheatAutoBlockProp.getBoolean();
+
+            Property antiCheatScaffoldProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "antiCheatScaffoldEnabled",
+                    true,
+                    "Flag players sprint-bridging with sharp downward pitch or pitch-snap behaviour (scaffold).");
+            antiCheatScaffoldEnabled = antiCheatScaffoldProp.getBoolean();
+
+            Property antiCheatCooldownProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "antiCheatFlagCooldownMs",
+                    10000,
+                    "Minimum milliseconds between repeat flag chat messages for the same player.",
+                    1000, 600000);
+            antiCheatFlagCooldownMs = antiCheatCooldownProp.getInt();
+
             // Master enable/disable toggle
             Property modEnabledProp = config.get(
                     Configuration.CATEGORY_GENERAL,
@@ -1167,5 +1203,21 @@ public class ModConfig {
         modEnabled = enabled;
         config.get(Configuration.CATEGORY_GENERAL, "modEnabled", true).set(enabled);
         config.save();
+    }
+
+    public static boolean isAntiCheatEnabled() {
+        return antiCheatEnabled;
+    }
+
+    public static boolean isAntiCheatAutoBlockEnabled() {
+        return antiCheatAutoBlockEnabled;
+    }
+
+    public static boolean isAntiCheatScaffoldEnabled() {
+        return antiCheatScaffoldEnabled;
+    }
+
+    public static int getAntiCheatFlagCooldownMs() {
+        return antiCheatFlagCooldownMs;
     }
 }

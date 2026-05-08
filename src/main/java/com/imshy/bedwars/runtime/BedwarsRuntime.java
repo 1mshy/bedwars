@@ -72,6 +72,7 @@ public class BedwarsRuntime {
     private final ProjectileTrackingService projectileTrackingService;
     private final EnderPearlPredictionService enderPearlPredictionService;
     private final FinalKillLedger finalKillLedger;
+    private final AntiCheatService antiCheatService;
     private final BedwarsOverlayRenderer overlayRenderer;
     private final BedwarsHudRenderer hudRenderer;
     private final LastSeenArrowRenderer lastSeenArrowRenderer;
@@ -89,6 +90,7 @@ public class BedwarsRuntime {
         this.projectileTrackingService = new ProjectileTrackingService();
         this.enderPearlPredictionService = new EnderPearlPredictionService();
         this.finalKillLedger = new FinalKillLedger();
+        this.antiCheatService = new AntiCheatService();
         this.overlayRenderer = new BedwarsOverlayRenderer();
         this.hudRenderer = new BedwarsHudRenderer();
         this.lastSeenArrowRenderer = new LastSeenArrowRenderer();
@@ -461,6 +463,8 @@ public class BedwarsRuntime {
         state.clientTickCounter++;
 
         Minecraft mc = Minecraft.getMinecraft();
+
+        antiCheatService.onClientTick(mc);
 
         // AFK anti-kick: strafe left then right every 60 seconds
         if (state.afkEnabled && mc.thePlayer != null) {
