@@ -260,11 +260,9 @@ public class BedwarsRuntime {
                 return;
             }
 
-            if (message.contains(HypixelMessages.LOSS_GAME_OVER) ||
-                    (message.contains("disconnected") && message.contains("BED WARS")) ||
-                    (message.contains("You died!") && message.contains("FINAL KILL")) ||
-                    message.contains(HypixelMessages.LOSS_ELIMINATED) ||
-                    message.trim().startsWith(HypixelMessages.LOSS_1ST_KILLER)) {
+            String trimmedMessage = message.trim();
+            if (trimmedMessage.equals(HypixelMessages.LOSS_GAME_OVER) ||
+                    trimmedMessage.equals(HypixelMessages.LOSS_ELIMINATED)) {
 
                 LOGGER.info("LOSS detected");
                 captureMatchSummary(MatchSummary.Outcome.LOSS);
