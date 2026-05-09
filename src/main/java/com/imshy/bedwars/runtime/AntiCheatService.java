@@ -6,31 +6,45 @@ import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 
+import net.minecraft.block.state.IBlockState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityOtherPlayerMP;
 import net.minecraft.client.network.NetHandlerPlayClient;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.init.Blocks;
+import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.ItemSword;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.network.play.server.S0BPacketAnimation;
+import net.minecraft.network.play.server.S22PacketMultiBlockChange;
+import net.minecraft.network.play.server.S23PacketBlockChange;
+import net.minecraft.util.BlockPos;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.EnumChatFormatting;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * Client-side hacker detector. Two modules:
  *   - AutoBlock: a swing-arm packet (S0BPacketAnimation type 0) arrives for an
  *     EntityOtherPlayerMP that is currently in the using-item state with a sword.
- *   - Scaffold:  per-tick state heuristics on EntityOtherPlayerMP — sprinting
- *     downward bridging, exact pitch lock, and per-tick pitch snap.
+ *   - Scaffold:  per-tick state heuristics on EntityOtherPlayerMP. Gated by two
+ *     hard preconditions before any heuristic can fire: the player must be
+ *     holding a block item, and a non-air block update must have arrived near
+ *     them within PLACEMENT_RECENCY_MS. Heuristics themselves require sustained
+ *     suspicion (consecutive ticks or repeated hits within a window) — a single
+ *     tick of looking down while sprinting is not enough.
  *
  * Flag chat messages are local-only (mc.thePlayer.addChatMessage) and rate-limited
  * per player+cheat to avoid spam.
@@ -43,10 +57,20 @@ public class AntiCheatService {
 
     // Scaffold heuristics
     private static final float DOWNWARD_PITCH_THRESHOLD = 75.0F;
-    private static final float PITCH_SNAP_THRESHOLD = 45.0F;
+    private static final float PITCH_SNAP_THRESHOLD = 55.0F;            // raised — fewer combat false positives
     private static final double SCAFFOLD_HORIZONTAL_SPEED_SQ = 0.18 * 0.18; // ~3.6 b/s
-    private static final int LOCKED_PITCH_TICK_THRESHOLD = 8;
+    private static final int LOCKED_PITCH_TICK_THRESHOLD = 20;          // ~1s of perfect lock
     private static final float PITCH_LOCK_EPSILON = 0.0001F;
+
+    // Suspicion accumulation: a single tick is never enough to flag.
+    private static final int SPRINT_BRIDGE_SUSPICION_TICKS = 8;         // ~0.4s sustained pattern
+    private static final int PITCH_SNAP_SUSPICION_HITS = 3;             // 3 snaps within window
+    private static final long PITCH_SNAP_WINDOW_MS = 4000L;
+
+    // Placement gate: must have placed blocks near themselves recently.
+    private static final long PLACEMENT_RECENCY_MS = 2500L;
+    private static final double PLACEMENT_PROXIMITY_SQ = 5.0 * 5.0;     // 5-block radius
+    private static final int PLACEMENT_BUFFER_LIMIT = 256;              // safety cap on the netty queue
 
     // AutoBlock confirmation: count blocking-while-swinging events before flagging
     private static final int AUTOBLOCK_MIN_HITS = 2;
@@ -55,6 +79,11 @@ public class AntiCheatService {
     private final Map<UUID, Long> lastFlagAt = new HashMap<UUID, Long>();
     private final Map<UUID, ScaffoldState> scaffoldStates = new HashMap<UUID, ScaffoldState>();
     private final Map<UUID, AutoBlockState> autoBlockStates = new HashMap<UUID, AutoBlockState>();
+
+    // Block updates arrive on the netty thread; main-thread scanScaffold drains.
+    private final ConcurrentLinkedQueue<PlacementEvent> pendingPlacements =
+            new ConcurrentLinkedQueue<PlacementEvent>();
+    private final Deque<PlacementEvent> recentPlacements = new ArrayDeque<PlacementEvent>();
 
     private NetworkManager attachedManager;
     private boolean handlerInstalled;
@@ -78,6 +107,8 @@ public class AntiCheatService {
         scaffoldStates.clear();
         autoBlockStates.clear();
         lastFlagAt.clear();
+        pendingPlacements.clear();
+        recentPlacements.clear();
     }
 
     // ---------------------------------------------------------------------
@@ -137,6 +168,18 @@ public class AntiCheatService {
                     // Never let a detection error break the network pipeline.
                     LOGGER.debug("AntiCheat animation handling error", t);
                 }
+            } else if (msg instanceof S23PacketBlockChange && ModConfig.isAntiCheatScaffoldEnabled()) {
+                try {
+                    enqueueBlockChange((S23PacketBlockChange) msg);
+                } catch (Throwable t) {
+                    LOGGER.debug("AntiCheat block-change handling error", t);
+                }
+            } else if (msg instanceof S22PacketMultiBlockChange && ModConfig.isAntiCheatScaffoldEnabled()) {
+                try {
+                    enqueueMultiBlockChange((S22PacketMultiBlockChange) msg);
+                } catch (Throwable t) {
+                    LOGGER.debug("AntiCheat multi-block-change handling error", t);
+                }
             }
             super.channelRead(ctx, msg);
         }
@@ -193,6 +236,9 @@ public class AntiCheatService {
         if (mc.theWorld == null) {
             return;
         }
+        long now = System.currentTimeMillis();
+        drainAndPrunePlacements(now);
+
         UUID localId = mc.thePlayer != null ? mc.thePlayer.getUniqueID() : null;
         for (Object obj : mc.theWorld.playerEntities) {
             if (!(obj instanceof EntityOtherPlayerMP)) {
@@ -221,24 +267,50 @@ public class AntiCheatService {
             double horizSpeedSq = dx * dx + dz * dz;
             boolean moving = horizSpeedSq > SCAFFOLD_HORIZONTAL_SPEED_SQ;
 
-            // (A) Sprint-bridge: sprinting + sharp downward pitch + actually moving.
-            if (other.isSprinting() && pitch > DOWNWARD_PITCH_THRESHOLD && moving) {
-                sendLocalFlag(other.getName(), id, "Scaffold (sprint-bridge)");
-            }
+            // Hard gates: must hold a block AND have placed a block nearby recently.
+            ItemStack held = other.getHeldItem();
+            boolean holdingBlock = held != null && held.getItem() instanceof ItemBlock;
+            boolean placedNearby = holdingBlock && hasRecentPlacementNear(other, now);
 
-            // (B) Pitch snap: large per-tick pitch jump while moving fast.
-            if (deltaPitch > PITCH_SNAP_THRESHOLD && moving) {
-                sendLocalFlag(other.getName(), id, "Scaffold (pitch-snap)");
-            }
-
-            // (C) Exact pitch lock at a sharp angle while horizontally moving.
-            if (pitch > DOWNWARD_PITCH_THRESHOLD && deltaPitch < PITCH_LOCK_EPSILON && moving) {
-                s.lockedPitchTicks++;
-                if (s.lockedPitchTicks == LOCKED_PITCH_TICK_THRESHOLD) {
-                    sendLocalFlag(other.getName(), id, "Scaffold (pitch-lock)");
-                }
-            } else {
+            if (!placedNearby) {
+                // Decay tick-based suspicion when the placement gate isn't satisfied.
+                s.sprintBridgeTicks = 0;
                 s.lockedPitchTicks = 0;
+                // pitchSnapHits is window-bounded; let it expire naturally.
+            } else {
+                // (A) Sprint-bridge: needs sustained pattern, not a single tick.
+                if (other.isSprinting() && pitch > DOWNWARD_PITCH_THRESHOLD && moving) {
+                    s.sprintBridgeTicks++;
+                    if (s.sprintBridgeTicks == SPRINT_BRIDGE_SUSPICION_TICKS) {
+                        sendLocalFlag(other.getName(), id, "Scaffold (sprint-bridge)");
+                    }
+                } else {
+                    s.sprintBridgeTicks = 0;
+                }
+
+                // (B) Pitch snap: needs N snaps within a window, not a single one.
+                if (deltaPitch > PITCH_SNAP_THRESHOLD && moving) {
+                    if (now - s.lastPitchSnapWindowStart > PITCH_SNAP_WINDOW_MS) {
+                        s.lastPitchSnapWindowStart = now;
+                        s.pitchSnapHits = 0;
+                    }
+                    s.pitchSnapHits++;
+                    if (s.pitchSnapHits >= PITCH_SNAP_SUSPICION_HITS) {
+                        sendLocalFlag(other.getName(), id, "Scaffold (pitch-snap)");
+                        s.pitchSnapHits = 0;
+                        s.lastPitchSnapWindowStart = now;
+                    }
+                }
+
+                // (C) Pitch lock: ~1s of perfectly locked pitch while bridging.
+                if (pitch > DOWNWARD_PITCH_THRESHOLD && deltaPitch < PITCH_LOCK_EPSILON && moving) {
+                    s.lockedPitchTicks++;
+                    if (s.lockedPitchTicks == LOCKED_PITCH_TICK_THRESHOLD) {
+                        sendLocalFlag(other.getName(), id, "Scaffold (pitch-lock)");
+                    }
+                } else {
+                    s.lockedPitchTicks = 0;
+                }
             }
 
             s.lastPitch = pitch;
@@ -250,6 +322,56 @@ public class AntiCheatService {
         if (scaffoldStates.size() > 256) {
             pruneStateMaps(mc);
         }
+    }
+
+    private void enqueueBlockChange(S23PacketBlockChange p) {
+        IBlockState state = p.getBlockState();
+        if (state == null || state.getBlock() == Blocks.air) return;
+        if (pendingPlacements.size() >= PLACEMENT_BUFFER_LIMIT) return;
+        pendingPlacements.add(new PlacementEvent(p.getBlockPosition(), System.currentTimeMillis()));
+    }
+
+    private void enqueueMultiBlockChange(S22PacketMultiBlockChange p) {
+        long now = System.currentTimeMillis();
+        S22PacketMultiBlockChange.BlockUpdateData[] updates = p.getChangedBlocks();
+        if (updates == null) return;
+        for (S22PacketMultiBlockChange.BlockUpdateData u : updates) {
+            IBlockState state = u.getBlockState();
+            if (state == null || state.getBlock() == Blocks.air) continue;
+            if (pendingPlacements.size() >= PLACEMENT_BUFFER_LIMIT) break;
+            pendingPlacements.add(new PlacementEvent(u.getPos(), now));
+        }
+    }
+
+    private void drainAndPrunePlacements(long now) {
+        PlacementEvent ev;
+        while ((ev = pendingPlacements.poll()) != null) {
+            recentPlacements.addLast(ev);
+        }
+        long cutoff = now - PLACEMENT_RECENCY_MS;
+        Iterator<PlacementEvent> it = recentPlacements.iterator();
+        while (it.hasNext()) {
+            if (it.next().when < cutoff) {
+                it.remove();
+            } else {
+                break; // entries are append-ordered ≈ time-ordered
+            }
+        }
+    }
+
+    private boolean hasRecentPlacementNear(EntityOtherPlayerMP other, long now) {
+        if (recentPlacements.isEmpty()) return false;
+        double px = other.posX, py = other.posY, pz = other.posZ;
+        long cutoff = now - PLACEMENT_RECENCY_MS;
+        for (PlacementEvent ev : recentPlacements) {
+            if (ev.when < cutoff) continue;
+            double ex = ev.pos.getX() + 0.5;
+            double ey = ev.pos.getY() + 0.5;
+            double ez = ev.pos.getZ() + 0.5;
+            double dx = ex - px, dy = ey - py, dz = ez - pz;
+            if (dx * dx + dy * dy + dz * dz <= PLACEMENT_PROXIMITY_SQ) return true;
+        }
+        return false;
     }
 
     private void pruneStateMaps(Minecraft mc) {
@@ -296,10 +418,22 @@ public class AntiCheatService {
         double lastX;
         double lastZ;
         int lockedPitchTicks;
+        int sprintBridgeTicks;
+        long lastPitchSnapWindowStart;
+        int pitchSnapHits;
     }
 
     private static final class AutoBlockState {
         long firstHit;
         int hits;
+    }
+
+    private static final class PlacementEvent {
+        final BlockPos pos;
+        final long when;
+        PlacementEvent(BlockPos pos, long when) {
+            this.pos = pos;
+            this.when = when;
+        }
     }
 }
