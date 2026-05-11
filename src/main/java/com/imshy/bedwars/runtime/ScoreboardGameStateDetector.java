@@ -23,7 +23,6 @@ public final class ScoreboardGameStateDetector {
 
     /**
      * Sidebar rows for active teams use the form "&lt;TeamName&gt;: &lt;status&gt;".
-     * Sidebar rows for active teams use the form "<TeamName>: <status>".
      * The status is one of:
      *   - ✓ / ✔  bed alive
      *   - ✗ / ✘  team eliminated
