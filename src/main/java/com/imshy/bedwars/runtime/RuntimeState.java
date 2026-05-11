@@ -23,11 +23,16 @@ final class RuntimeState {
     long matchStartTime = 0;
     long clientTickCounter = 0;
     long lastScoreboardPhaseScanTick = 0;
-    /** Consecutive scoreboard-poll ticks that found no in-game team rows while IN_GAME. */
-    int scoreboardEndMissCount = 0;
     /** Latest parsed snapshot of all sidebar team rows, updated each scoreboard-poll tick. */
     final java.util.Map<String, ScoreboardGameStateDetector.TeamStatus> scoreboardTeamStatuses =
             new java.util.LinkedHashMap<String, ScoreboardGameStateDetector.TeamStatus>();
+    /**
+     * Weakly-held reference to the world we were last seen playing in. Used by
+     * onEntityJoinWorld to distinguish a true server change (different World object)
+     * from a same-world respawn / re-sync (same World object), which Forge also
+     * fires this event for.
+     */
+    java.lang.ref.WeakReference<net.minecraft.world.World> lastTrackedWorld = null;
 
     // --- Pre-game state ---
     long joinBurstTickStamp = -1;
@@ -105,8 +110,8 @@ final class RuntimeState {
         matchStartTime = 0;
         clientTickCounter = 0;
         lastScoreboardPhaseScanTick = 0;
-        scoreboardEndMissCount = 0;
         scoreboardTeamStatuses.clear();
+        lastTrackedWorld = null;
 
         // Pre-game state
         joinBurstTickStamp = -1;

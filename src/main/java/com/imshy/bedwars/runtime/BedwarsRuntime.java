@@ -236,11 +236,15 @@ public class BedwarsRuntime {
 
         if (state.gamePhase == GamePhase.IN_GAME && mc.thePlayer != null) {
             String playerName = mc.thePlayer.getName();
+            String trimmedMessage = message.trim();
 
+            // WIN detection: VICTORY! is a distinctive ASCII-art header so a plain
+            // contains() is safe. The other markers can appear inside player chat
+            // so they require trimmed-equality or startsWith plus a name check.
             if (message.contains(HypixelMessages.WIN_VICTORY) ||
-                    (message.contains(HypixelMessages.WIN_1ST_KILLER) && message.contains(playerName)) ||
-                    message.contains(HypixelMessages.WIN_YOU_WON) ||
-                    (message.contains(HypixelMessages.WIN_WINNER) && message.contains(playerName))) {
+                    trimmedMessage.equals(HypixelMessages.WIN_YOU_WON) ||
+                    (trimmedMessage.startsWith(HypixelMessages.WIN_1ST_KILLER) && trimmedMessage.contains(playerName)) ||
+                    (trimmedMessage.startsWith("Winners: ") && trimmedMessage.contains(playerName))) {
 
                 LOGGER.info("WIN detected");
                 captureMatchSummary(MatchSummary.Outcome.WIN);
@@ -260,7 +264,6 @@ public class BedwarsRuntime {
                 return;
             }
 
-            String trimmedMessage = message.trim();
             if (trimmedMessage.equals(HypixelMessages.LOSS_GAME_OVER) ||
                     trimmedMessage.equals(HypixelMessages.LOSS_ELIMINATED)) {
 
@@ -315,7 +318,14 @@ public class BedwarsRuntime {
                             EnumChatFormatting.GRAY + "\u2014 retrying in 7s..."));
         }
 
-        if (message.contains(HypixelMessages.PLAYER_LEFT) || message.contains(HypixelMessages.PLAYER_SENDING)) {
+        // Hypixel sends these as bare system messages (no rank/name prefix), so the
+        // trimmed form is either exactly PLAYER_LEFT or starts with PLAYER_SENDING
+        // followed by a server name. Substring matches against the raw message were
+        // ending the game whenever another player typed "You left." or
+        // "Sending you to..." in chat.
+        String trimmedLeave = message.trim();
+        if (trimmedLeave.equals(HypixelMessages.PLAYER_LEFT)
+                || trimmedLeave.startsWith(HypixelMessages.PLAYER_SENDING)) {
             synchronized (state.chatDetectedPlayers) {
                 state.chatDetectedPlayers.clear();
             }
@@ -356,7 +366,21 @@ public class BedwarsRuntime {
         Minecraft mc = Minecraft.getMinecraft();
 
         if (mc.thePlayer != null && player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
-            // The local player joining a new world while in a game means disconnection
+            // Forge fires EntityJoinWorldEvent for the local player on respawn and
+            // certain re-syncs too, not only on a real server change. If the joined
+            // world is the same World instance we were already tracking, treat it
+            // as a respawn / re-sync and don't pause tracking.
+            net.minecraft.world.World previous =
+                    state.lastTrackedWorld != null ? state.lastTrackedWorld.get() : null;
+            if (previous != null && previous == event.world) {
+                return;
+            }
+            if (previous == null) {
+                // No baseline yet — record this world as the tracked one and skip.
+                state.lastTrackedWorld = new java.lang.ref.WeakReference<net.minecraft.world.World>(event.world);
+                return;
+            }
+            // Different World instance → genuine server transition (disconnect).
             if (!state.disconnectedFromGame) {
                 state.disconnectedFromGame = true;
                 state.disconnectTime = System.currentTimeMillis();
@@ -523,11 +547,17 @@ public class BedwarsRuntime {
             }
         }
 
-        // Scoreboard-based in-game polling: update team-status snapshot and detect
-        // end-of-match when the sidebar loses all team rows (disconnection, phase
-        // change, or Hypixel removing the objective on match completion).
+        // Scoreboard-based in-game polling: keep the team-status snapshot fresh
+        // for downstream services (HUD, TeamDangerAnalyzer, etc.). Also acts as
+        // the passive recovery signal for disconnectedFromGame — a non-empty
+        // snapshot is positive evidence that tracking should resume.
+        //
+        // We do NOT end the match from this signal anymore: chat triggers
+        // (LOSS_GAME_OVER, LOSS_ELIMINATED, WIN_*, PLAYER_LEFT) cover every
+        // realistic end condition, and the old miss-count heuristic was the
+        // dominant source of spurious "Game Over" popups when Hypixel briefly
+        // mutated the sidebar (event banners, "Bed Self-Destruct in...", etc.).
         if (state.gamePhase == GamePhase.IN_GAME
-                && !state.disconnectedFromGame
                 && state.clientTickCounter - state.lastScoreboardPhaseScanTick >= 10) {
             state.lastScoreboardPhaseScanTick = state.clientTickCounter;
 
@@ -540,33 +570,26 @@ public class BedwarsRuntime {
                 state.scoreboardTeamStatuses.put(ts.teamName, ts);
             }
 
-            // End-of-match detection: sidebar disappears / loses all team rows
-            // Only start counting after the match has been running >= 30 s to
-            // avoid false positives from the objective not being set yet.
-            long matchRunMs = System.currentTimeMillis() - state.matchStartTime;
-            if (statuses.isEmpty() && matchRunMs >= 30_000L) {
-                state.scoreboardEndMissCount++;
-                if (state.scoreboardEndMissCount >= 3) {
-                    LOGGER.info("IN_GAME -> IDLE via scoreboard disappearance (miss count reached)");
-                    captureMatchSummary(MatchSummary.Outcome.UNKNOWN);
-                    PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.UNKNOWN);
-                    PlayerDatabase.getInstance().clearCurrentGame();
-                    state.gamePhase = GamePhase.IDLE;
-                    state.disconnectedFromGame = false;
-                    state.scoreboardEndMissCount = 0;
-                    state.chatDetectedPlayers.clear();
-                    state.chatDetectedStartTime = 0;
-                    state.lobbyBaitActive = false;
-                    matchThreatService.clearBedTrackingState();
-                    lobbyTrackerService.clearRecentJoins();
-                    enemyTrackingService.clearAll();
-                    fireballTrackingService.clearAll();
-                    projectileTrackingService.clearAll();
-                    finalKillLedger.clear();
-                    return;
+            // Track the active world so onEntityJoinWorld can distinguish a real
+            // server change from a respawn / re-sync within the same world.
+            if (mc.theWorld != null) {
+                net.minecraft.world.World previous =
+                        state.lastTrackedWorld != null ? state.lastTrackedWorld.get() : null;
+                if (previous != mc.theWorld) {
+                    state.lastTrackedWorld = new java.lang.ref.WeakReference<net.minecraft.world.World>(mc.theWorld);
                 }
-            } else {
-                state.scoreboardEndMissCount = 0;
+            }
+
+            // Passive recovery: if we are flagged disconnected but the sidebar
+            // shows active team rows, we are clearly back in a working match —
+            // clear the flag without waiting for the reconnect chat pattern.
+            if (state.disconnectedFromGame && !statuses.isEmpty() && mc.thePlayer != null) {
+                state.disconnectedFromGame = false;
+                state.disconnectTime = 0;
+                LOGGER.info("Auto-resumed tracking — scoreboard shows active match");
+                mc.thePlayer.addChatMessage(new ChatComponentText(
+                        EnumChatFormatting.GOLD + "[BW] " +
+                                EnumChatFormatting.GREEN + "✓ Tracking resumed."));
             }
         }
 

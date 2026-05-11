@@ -33,6 +33,12 @@ public class LobbyTrackerService {
         state.gamePhase = GamePhase.IN_GAME;
         state.disconnectedFromGame = false;
         state.disconnectTime = 0;
+        if (mc != null && mc.theWorld != null) {
+            // Baseline the world we're tracking so a respawn within the same
+            // world isn't mistaken for a disconnect by onEntityJoinWorld.
+            state.lastTrackedWorld =
+                    new java.lang.ref.WeakReference<net.minecraft.world.World>(mc.theWorld);
+        }
         state.trackedGenerators.clear();
         state.lastGeneratorScan = 0;
         state.chatDetectedPlayers.clear();
