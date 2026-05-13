@@ -82,10 +82,6 @@ public class LobbyTrackerService {
             state.autoplayCheckTime = System.currentTimeMillis() + RuntimeState.AUTOPLAY_CHECK_DELAY;
             state.autoplayPendingCheck = true;
             if (mc != null && mc.thePlayer != null) {
-                mc.thePlayer.addChatMessage(new ChatComponentText(
-                        EnumChatFormatting.GOLD + "[Autoplay] " +
-                                EnumChatFormatting.YELLOW + "Checking lobby for threats in 5 seconds..."));
-
                 state.partyMemberNames.clear();
                 state.partyListPending = true;
                 state.partyListRequestTime = System.currentTimeMillis();
@@ -165,25 +161,6 @@ public class LobbyTrackerService {
         if (db.hasPlayedBefore(playerName)) {
             entry.encounterCount = db.getEncounterCount(playerName);
             entry.winLossRecord = db.getWinLossRecord(playerName);
-
-            if (ModConfig.isHistoryAlertsEnabled() && mc.thePlayer != null) {
-                int wins = entry.winLossRecord[0];
-                int losses = entry.winLossRecord[1];
-                String recordColor;
-                if (wins > losses) {
-                    recordColor = EnumChatFormatting.GREEN.toString();
-                } else if (losses > wins) {
-                    recordColor = EnumChatFormatting.RED.toString();
-                } else {
-                    recordColor = EnumChatFormatting.YELLOW.toString();
-                }
-
-                mc.thePlayer.addChatMessage(new ChatComponentText(
-                        EnumChatFormatting.AQUA + "📜 HISTORY: " +
-                                EnumChatFormatting.WHITE + playerName +
-                                EnumChatFormatting.GRAY + " - Played " + entry.encounterCount + "x | Record: " +
-                                recordColor + wins + "W-" + losses + "L"));
-            }
         }
 
         if (HypixelAPI.hasApiKey()) {
@@ -191,25 +168,6 @@ public class LobbyTrackerService {
                 @Override
                 public void onStatsLoaded(BedwarsStats stats) {
                     entry.stats = stats;
-
-                    BedwarsStats.ThreatLevel threat = stats.getThreatLevel();
-
-                    if (threat == BedwarsStats.ThreatLevel.MEDIUM ||
-                            threat == BedwarsStats.ThreatLevel.HIGH ||
-                            threat == BedwarsStats.ThreatLevel.EXTREME) {
-
-                        boolean withinStartWindow = System.currentTimeMillis() - state.matchStartTime < RuntimeState.INITIAL_STAT_DISPLAY_MS;
-                        if (withinStartWindow) {
-                            Minecraft mc = Minecraft.getMinecraft();
-                            if (mc.thePlayer != null) {
-                                String threatColor = stats.getThreatColor();
-                                mc.thePlayer.addChatMessage(new ChatComponentText(
-                                        EnumChatFormatting.GREEN + "[BW] " +
-                                                threatColor + playerName + " " +
-                                                stats.getDisplayString()));
-                            }
-                        }
-                    }
                 }
 
                 @Override

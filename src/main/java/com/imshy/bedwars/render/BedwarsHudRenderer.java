@@ -171,6 +171,14 @@ public class BedwarsHudRenderer {
             addedSection = addHighestThreatSection(lines, mc, teamDangerAnalyzer);
         }
 
+        if (ModConfig.isHudGoodTeamsEnabled()) {
+            if (addedSection) {
+                lines.add(HudLine.gap());
+            }
+            boolean added = addGoodTeamsSection(lines, mc, teamDangerAnalyzer);
+            addedSection = addedSection || added;
+        }
+
         if (ModConfig.isHudGeneratorCountsEnabled()) {
             if (addedSection) {
                 lines.add(HudLine.gap());
@@ -256,6 +264,36 @@ public class BedwarsHudRenderer {
                 + highest.playersWithKnownThreat + "/" + highest.totalPlayers + " known)"
                 + nickSuffix));
         return true;
+    }
+
+    private boolean addGoodTeamsSection(List<HudLine> lines, Minecraft mc,
+                                         TeamDangerAnalyzer teamDangerAnalyzer) {
+        List<TeamDangerEntry> summaries = teamDangerAnalyzer.buildTeamDangerSummary(mc);
+        if (summaries.isEmpty()) {
+            return false;
+        }
+
+        boolean headerAdded = false;
+        for (TeamDangerEntry entry : summaries) {
+            if (entry.isOwnTeam || entry.playersWithKnownThreat == 0) {
+                continue;
+            }
+            String label = TeamDangerAnalyzer.averageThreatLabel(entry.getAverageThreatScore());
+            if (!"HIGH".equals(label) && !"EXTREME".equals(label)) {
+                continue;
+            }
+
+            if (!headerAdded) {
+                lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "GOOD TEAMS"));
+                headerAdded = true;
+            }
+
+            String color = TeamDangerAnalyzer.dangerLabelColor(label);
+            lines.add(HudLine.text(entry.teamColor + entry.teamName
+                    + EnumChatFormatting.GRAY + " - "
+                    + color + label));
+        }
+        return headerAdded;
     }
 
     private boolean addGeneratorSection(List<HudLine> lines, WorldScanService worldScanService) {
@@ -533,12 +571,15 @@ public class BedwarsHudRenderer {
             return false;
         }
 
-        lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "DETECTED PLAYERS"));
-
+        boolean headerAdded = false;
         synchronized (chatDetectedPlayers) {
             for (ChatDetectedPlayer cdp : chatDetectedPlayers) {
                 BedwarsStats stats = cdp.stats;
                 BedwarsStats.ThreatLevel threat = stats.getThreatLevel();
+                if (threat != BedwarsStats.ThreatLevel.HIGH
+                        && threat != BedwarsStats.ThreatLevel.EXTREME) {
+                    continue;
+                }
                 String threatColor = stats.getThreatColor();
 
                 ResourceLocation skin = null;
@@ -551,6 +592,11 @@ public class BedwarsHudRenderer {
                             break;
                         }
                     }
+                }
+
+                if (!headerAdded) {
+                    lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "GOOD PLAYERS"));
+                    headerAdded = true;
                 }
 
                 StringBuilder lineBuilder = new StringBuilder();
@@ -571,7 +617,7 @@ public class BedwarsHudRenderer {
                 lines.add(HudLine.playerLine(lineBuilder.toString(), skin));
             }
         }
-        return true;
+        return headerAdded;
     }
 
     private static class ThreatPlayerEntry {

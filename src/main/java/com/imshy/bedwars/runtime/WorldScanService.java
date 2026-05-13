@@ -123,21 +123,9 @@ public class WorldScanService {
 
         long now = System.currentTimeMillis();
         if (now - state.lastRequeueTime < RuntimeState.SPAM_RETRY_DELAY) {
-            mc.thePlayer.addChatMessage(new ChatComponentText(
-                    EnumChatFormatting.GOLD + "[Autoplay] " +
-                            EnumChatFormatting.GRAY + "Waiting for cooldown..."));
             return;
         }
         state.lastRequeueTime = now;
-
-        if (reasonMessage != null && !reasonMessage.isEmpty()) {
-            mc.thePlayer.addChatMessage(new ChatComponentText(
-                    EnumChatFormatting.GOLD + "[Autoplay] " + reasonMessage));
-        }
-
-        mc.thePlayer.addChatMessage(new ChatComponentText(
-                EnumChatFormatting.GOLD + "[Autoplay] " +
-                        EnumChatFormatting.YELLOW + "Requeuing..."));
 
         state.gamePhase = GamePhase.IDLE;
         state.autoplayPendingCheck = false;
@@ -383,7 +371,6 @@ public class WorldScanService {
 
         String maxThreatLevel = ModConfig.getAutoplayMaxThreatLevel();
         List<String> enemyThreatPlayers = new ArrayList<String>();
-        List<String> teammateThreatPlayers = new ArrayList<String>();
 
         for (EntityPlayer player : mc.theWorld.playerEntities) {
             if (player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
@@ -409,21 +396,10 @@ public class WorldScanService {
                     isThreat = (threat == BedwarsStats.ThreatLevel.EXTREME);
                 }
 
-                if (isThreat) {
-                    if (matchThreatService.isTeammate(mc, mc.thePlayer, player)) {
-                        teammateThreatPlayers.add(playerName + " (" + threat.name() + ")");
-                    } else {
-                        enemyThreatPlayers.add(playerName + " (" + threat.name() + ")");
-                    }
+                if (isThreat && !matchThreatService.isTeammate(mc, mc.thePlayer, player)) {
+                    enemyThreatPlayers.add(playerName + " (" + threat.name() + ")");
                 }
             }
-        }
-
-        if (!teammateThreatPlayers.isEmpty()) {
-            mc.thePlayer.addChatMessage(new ChatComponentText(
-                    EnumChatFormatting.GOLD + "[Autoplay] " +
-                            EnumChatFormatting.GREEN + "Teammate threats (ignored): " +
-                            EnumChatFormatting.YELLOW + String.join(", ", teammateThreatPlayers)));
         }
 
         if (!enemyThreatPlayers.isEmpty()) {
@@ -432,17 +408,9 @@ public class WorldScanService {
             if (ModConfig.isAutoplayRequeueEnabled() || state.gamePhase != GamePhase.IN_GAME) {
                 requeueAutoplay(mc, threatMessage);
             } else {
-                mc.thePlayer.addChatMessage(new ChatComponentText(
-                        EnumChatFormatting.GOLD + "[Autoplay] " + threatMessage));
-                mc.thePlayer.addChatMessage(new ChatComponentText(
-                        EnumChatFormatting.GOLD + "[Autoplay] " +
-                                EnumChatFormatting.GRAY + "Requeue is disabled. Staying in lobby."));
                 state.autoplayEnabled = false;
             }
         } else {
-            mc.thePlayer.addChatMessage(new ChatComponentText(
-                    EnumChatFormatting.GOLD + "[Autoplay] " +
-                            EnumChatFormatting.GREEN + "No enemy threats detected! Stopping autoplay."));
             state.autoplayEnabled = false;
         }
     }

@@ -312,10 +312,6 @@ public class BedwarsRuntime {
         if (state.autoplayEnabled && message.contains(HypixelMessages.AUTOPLAY_RATE_LIMIT)) {
             state.autoplaySpamBlocked = true;
             state.autoplaySpamBlockedTime = System.currentTimeMillis();
-            mc.thePlayer.addChatMessage(new ChatComponentText(
-                    EnumChatFormatting.GOLD + "[Autoplay] " +
-                            EnumChatFormatting.RED + "Rate limited " +
-                            EnumChatFormatting.GRAY + "\u2014 retrying in 7s..."));
         }
 
         // Hypixel sends these as bare system messages (no rank/name prefix), so the
@@ -507,9 +503,6 @@ public class BedwarsRuntime {
                 String playCommand = worldScanService.getPlayCommand(state.autoplayMode);
                 if (playCommand != null) {
                     mc.thePlayer.sendChatMessage(playCommand);
-                    mc.thePlayer.addChatMessage(new ChatComponentText(
-                            EnumChatFormatting.GOLD + "[Autoplay] " +
-                                    EnumChatFormatting.GREEN + "Retrying queue..."));
                 }
             }
         }
@@ -918,11 +911,6 @@ public class BedwarsRuntime {
             if (ModConfig.isAutoplayRequeueEnabled() || state.gamePhase != GamePhase.IN_GAME) {
                 worldScanService.requeueAutoplay(mc, burstMessage);
             } else {
-                mc.thePlayer.addChatMessage(new ChatComponentText(
-                        EnumChatFormatting.GOLD + "[Autoplay] " + burstMessage));
-                mc.thePlayer.addChatMessage(new ChatComponentText(
-                        EnumChatFormatting.GOLD + "[Autoplay] " +
-                                EnumChatFormatting.GRAY + "Requeue is disabled. Staying in lobby."));
                 state.autoplayEnabled = false;
             }
         }
@@ -958,11 +946,6 @@ public class BedwarsRuntime {
         if (!HypixelAPI.hasApiKey()) {
             return;
         }
-
-        mc.thePlayer.addChatMessage(new ChatComponentText(
-                EnumChatFormatting.GOLD + "[BW] " +
-                        EnumChatFormatting.YELLOW + chatterName + " " +
-                        EnumChatFormatting.GRAY + "joined the game."));
 
         HypixelAPI.fetchStatsAsync(chatterName, new HypixelAPI.StatsCallback() {
             @Override
@@ -1023,26 +1006,13 @@ public class BedwarsRuntime {
                             }
                         }
 
-                        if (isTeammate) {
-                            if (mcInner.thePlayer != null) {
-                                mcInner.thePlayer.addChatMessage(new ChatComponentText(
-                                        EnumChatFormatting.GOLD + "[Autoplay] " +
-                                                EnumChatFormatting.GREEN + "Teammate threat (ignored): " +
-                                                EnumChatFormatting.YELLOW + chatterName +
-                                                " (" + threat.name() + ")"));
-                            }
-                        } else {
+                        if (!isTeammate) {
                             String threatMessage = EnumChatFormatting.RED + "Chat threat detected: " +
                                     EnumChatFormatting.YELLOW + chatterName +
                                     " (" + threat.name() + ")";
                             if (ModConfig.isAutoplayRequeueEnabled() || state.gamePhase != GamePhase.IN_GAME) {
                                 worldScanService.requeueAutoplay(mcInner, threatMessage);
-                            } else if (mcInner.thePlayer != null) {
-                                mcInner.thePlayer.addChatMessage(new ChatComponentText(
-                                        EnumChatFormatting.GOLD + "[Autoplay] " + threatMessage));
-                                mcInner.thePlayer.addChatMessage(new ChatComponentText(
-                                        EnumChatFormatting.GOLD + "[Autoplay] " +
-                                                EnumChatFormatting.GRAY + "Requeue is disabled. Staying in lobby."));
+                            } else {
                                 state.autoplayEnabled = false;
                             }
                         }
@@ -1123,24 +1093,7 @@ public class BedwarsRuntime {
         }
         finalKillLedger.recordFinalKill(victim, teamName, teamColor);
 
-        if (!ModConfig.isFinalKillContextEnabled()) {
-            return;
-        }
-
-        BedwarsStats stats = HypixelAPI.getCachedStats(victim);
-        if (stats == null || !stats.isLoaded()) {
-            return;
-        }
-        BedwarsStats.ThreatLevel level = stats.getThreatLevel();
-        if (level == BedwarsStats.ThreatLevel.UNKNOWN) {
-            return;
-        }
-        String contextLine = EnumChatFormatting.GRAY + "   \u2514 removed " + stats.getThreatColor()
-                + level.name() + EnumChatFormatting.GRAY + " threat ("
-                + EnumChatFormatting.WHITE + stats.getStars() + "\u2B50 "
-                + EnumChatFormatting.YELLOW + BedwarsStats.formatRatioShort(stats.getFkdr())
-                + EnumChatFormatting.GRAY + " FKDR)";
-        mc.thePlayer.addChatMessage(new ChatComponentText(contextLine));
+        // Final-kill chat context disabled \u2014 HUD's FINAL KILL TALLY section conveys the same info.
     }
 
     private void handleReconnectMessage(Minecraft mc, String message) {

@@ -85,6 +85,7 @@ public class ModConfig {
     private static boolean hudHighestThreatEnabled = true;
     private static boolean hudGeneratorCountsEnabled = true;
     private static boolean hudTeamSummaryEnabled = true;
+    private static boolean hudGoodTeamsEnabled = true;
     private static boolean hudChatDetectedEnabled = true;
     private static boolean hudResourceEnabled = true;
     private static int resourceAlertIronThreshold = 40;
@@ -500,6 +501,13 @@ public class ModConfig {
                     true,
                     "Show per-team danger summary on the HUD");
             hudTeamSummaryEnabled = hudTeamSummaryProp.getBoolean();
+
+            Property hudGoodTeamsProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "hudGoodTeamsEnabled",
+                    true,
+                    "Show a GOOD TEAMS section listing teams whose average threat is HIGH or EXTREME");
+            hudGoodTeamsEnabled = hudGoodTeamsProp.getBoolean();
 
             Property hudChatDetectedProp = config.get(
                     Configuration.CATEGORY_GENERAL,
@@ -1036,6 +1044,10 @@ public class ModConfig {
 
     public static boolean isHudTeamSummaryEnabled() {
         return hudTeamSummaryEnabled;
+    }
+
+    public static boolean isHudGoodTeamsEnabled() {
+        return hudGoodTeamsEnabled;
     }
 
     public static boolean isHudChatDetectedEnabled() {
