@@ -61,6 +61,8 @@ public class BedwarsRuntime {
     };
     private static final Logger LOGGER = LogManager.getLogger("BedwarsStats");
     private static final Random baitRandom = new Random();
+    private static final long RENDER_FETCH_COOLDOWN_MS = 60_000L;
+    private final java.util.Map<String, Long> renderFetchRequests = new java.util.concurrent.ConcurrentHashMap<String, Long>();
 
     private final RuntimeState state;
     private final TeamDangerAnalyzer teamDangerAnalyzer;
@@ -668,6 +670,10 @@ public class BedwarsRuntime {
             return;
         }
 
+        if (!ModConfig.isNameTagsEnabled()) {
+            return;
+        }
+
         if (!(event.entity instanceof EntityPlayer)) {
             return;
         }
@@ -679,13 +685,9 @@ public class BedwarsRuntime {
             return;
         }
 
-        // Hypixel's anticheat / spawn-cage desync briefly reports players ~100 blocks high at game start.
-        if (mc.thePlayer != null && Math.abs(event.y - mc.thePlayer.posY) > 50.0D) {
-            return;
-        }
-
         BedwarsStats stats = HypixelAPI.getCachedStats(player.getName());
         if (stats == null || !stats.isLoaded()) {
+            maybeRequestRenderFetch(player.getName());
             return;
         }
 
@@ -1023,6 +1025,30 @@ public class BedwarsRuntime {
             @Override
             public void onError(String error) {
                 LOGGER.warn("Chat lookup error for {}: {}", chatterName, error);
+            }
+        });
+    }
+
+    private void maybeRequestRenderFetch(String playerName) {
+        if (playerName == null || playerName.isEmpty()) {
+            return;
+        }
+        if (!HypixelAPI.hasApiKey()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        Long prev = renderFetchRequests.get(playerName);
+        if (prev != null && now - prev < RENDER_FETCH_COOLDOWN_MS) {
+            return;
+        }
+        renderFetchRequests.put(playerName, now);
+        HypixelAPI.fetchStatsAsync(playerName, new HypixelAPI.StatsCallback() {
+            @Override
+            public void onStatsLoaded(BedwarsStats stats) {
+            }
+
+            @Override
+            public void onError(String error) {
             }
         });
     }

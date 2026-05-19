@@ -576,8 +576,8 @@ public class BedwarsHudRenderer {
             for (ChatDetectedPlayer cdp : chatDetectedPlayers) {
                 BedwarsStats stats = cdp.stats;
                 BedwarsStats.ThreatLevel threat = stats.getThreatLevel();
-                if (threat != BedwarsStats.ThreatLevel.HIGH
-                        && threat != BedwarsStats.ThreatLevel.EXTREME) {
+                if (threat == BedwarsStats.ThreatLevel.LOW
+                        || threat == BedwarsStats.ThreatLevel.UNKNOWN) {
                     continue;
                 }
                 String threatColor = stats.getThreatColor();
@@ -595,7 +595,7 @@ public class BedwarsHudRenderer {
                 }
 
                 if (!headerAdded) {
-                    lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "GOOD PLAYERS"));
+                    lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "DETECTED PLAYERS"));
                     headerAdded = true;
                 }
 

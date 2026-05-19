@@ -131,6 +131,9 @@ public class ModConfig {
     private static double enderPearlAlertRadius = 8.0;
     private static boolean enderPearlPreviewEnabled = true;
 
+    // In-world nametag master toggle (threat label, recent-FKDR addon, loadout row, enemy-tracking label)
+    private static boolean nameTagsEnabled = true;
+
     // Anti-cheat / hacker detection settings
     private static boolean antiCheatEnabled = true;
     private static boolean antiCheatAutoBlockEnabled = true;
@@ -793,6 +796,13 @@ public class ModConfig {
                     "Show a predicted arc and landing marker for your own ender pearls when holding one.");
             enderPearlPreviewEnabled = enderPearlPreviewProp.getBoolean();
 
+            Property nameTagsEnabledProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "nameTagsEnabled",
+                    true,
+                    "Master toggle for in-world stat labels rendered above player heads (threat level, FKDR, loadout, enemy tracking).");
+            nameTagsEnabled = nameTagsEnabledProp.getBoolean();
+
             // Anti-cheat / hacker detection
             Property antiCheatEnabledProp = config.get(
                     CATEGORY_NEW_FEATURES,
@@ -1204,6 +1214,16 @@ public class ModConfig {
     public static void setEnderPearlPreviewEnabled(boolean enabled) {
         enderPearlPreviewEnabled = enabled;
         config.get(CATEGORY_NEW_FEATURES, "enderPearlPreviewEnabled", true).set(enabled);
+        config.save();
+    }
+
+    public static boolean isNameTagsEnabled() {
+        return nameTagsEnabled;
+    }
+
+    public static void setNameTagsEnabled(boolean enabled) {
+        nameTagsEnabled = enabled;
+        config.get(CATEGORY_NEW_FEATURES, "nameTagsEnabled", true).set(enabled);
         config.save();
     }
 
