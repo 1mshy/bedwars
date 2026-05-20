@@ -85,9 +85,16 @@ public class AntiCheatService {
     private final Map<UUID, ScaffoldState> scaffoldStates = new HashMap<UUID, ScaffoldState>();
     private final Map<UUID, AutoBlockState> autoBlockStates = new HashMap<UUID, AutoBlockState>();
 
-    // Swing timestamps per player; written on the netty thread, read on the render thread.
+    // Swing timestamps per player; written on the client thread (drainSwings), read on
+    // the render thread.
     private final ConcurrentHashMap<UUID, Deque<Long>> swingTimes =
             new ConcurrentHashMap<UUID, Deque<Long>>();
+
+    // Swing-arm packets arrive on the netty thread; onClientTick drains them on the
+    // client thread, where the world/entity access and flag bookkeeping are safe.
+    private static final int SWING_BUFFER_LIMIT = 256;
+    private final ConcurrentLinkedQueue<SwingEvent> pendingSwings =
+            new ConcurrentLinkedQueue<SwingEvent>();
 
     // Block updates arrive on the netty thread; main-thread scanScaffold drains.
     private final ConcurrentLinkedQueue<PlacementEvent> pendingPlacements =
@@ -109,6 +116,8 @@ public class AntiCheatService {
         if (ModConfig.isAntiCheatScaffoldEnabled()) {
             scanScaffold(mc);
         }
+        // Process swing-arm packets (CPS + AutoBlock) on the client thread.
+        drainSwings(mc);
         // Bound swing-timestamp memory: scanScaffold's prune only runs when scaffold is on.
         if (swingTimes.size() > CPS_MAP_PRUNE_THRESHOLD) {
             pruneStateMaps(mc);
@@ -122,6 +131,7 @@ public class AntiCheatService {
         lastFlagAt.clear();
         pendingPlacements.clear();
         recentPlacements.clear();
+        pendingSwings.clear();
         swingTimes.clear();
     }
 
@@ -176,14 +186,17 @@ public class AntiCheatService {
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
             if (msg instanceof S0BPacketAnimation) {
-                // Record every swing for CPS (independent of AutoBlock); AutoBlock adds the sword/blocking check.
+                // Capture the swing here (netty thread) but do all world/entity access and
+                // flag bookkeeping on the client thread via drainSwings. The arrival
+                // timestamp is taken now so CPS stays accurate despite deferred processing.
                 try {
                     S0BPacketAnimation anim = (S0BPacketAnimation) msg;
-                    if (ModConfig.isAntiCheatCpsEnabled()) {
-                        recordSwing(anim);
-                    }
-                    if (ModConfig.isAntiCheatAutoBlockEnabled()) {
-                        handleAnimation(anim);
+                    boolean wanted = ModConfig.isAntiCheatCpsEnabled()
+                            || ModConfig.isAntiCheatAutoBlockEnabled();
+                    if (wanted && anim.getAnimationType() == 0
+                            && pendingSwings.size() < SWING_BUFFER_LIMIT) {
+                        pendingSwings.add(new SwingEvent(
+                                anim.getEntityID(), System.currentTimeMillis()));
                     }
                 } catch (Throwable t) {
                     // Never let a detection error break the network pipeline.
@@ -207,23 +220,47 @@ public class AntiCheatService {
     }
 
     // ---------------------------------------------------------------------
-    // AutoBlock module (packet-driven)
+    // Swing processing (client thread) — CPS + AutoBlock
     // ---------------------------------------------------------------------
 
-    private void handleAnimation(S0BPacketAnimation packet) {
-        // Animation type 0 = swing arm. Other values are hurt, eat, etc.
-        if (packet.getAnimationType() != 0) {
+    /**
+     * Drains swing-arm packets captured on the netty thread and processes them here on
+     * the client thread, where world/entity access, AutoBlock state, and flag output are
+     * all safe. Resolves each entity once and feeds both the CPS tracker and AutoBlock.
+     */
+    private void drainSwings(Minecraft mc) {
+        if (mc.theWorld == null) {
             return;
         }
-        Minecraft mc = Minecraft.getMinecraft();
-        if (mc == null || mc.theWorld == null) {
-            return;
+        boolean cps = ModConfig.isAntiCheatCpsEnabled();
+        boolean autoBlock = ModConfig.isAntiCheatAutoBlockEnabled();
+        SwingEvent ev;
+        while ((ev = pendingSwings.poll()) != null) {
+            if (!cps && !autoBlock) {
+                continue; // flags toggled off after enqueue; just drain the queue
+            }
+            Entity entity = mc.theWorld.getEntityByID(ev.entityId);
+            if (!(entity instanceof EntityOtherPlayerMP)) {
+                continue;
+            }
+            EntityOtherPlayerMP player = (EntityOtherPlayerMP) entity;
+            if (cps) {
+                recordSwing(player.getUniqueID(), ev.when);
+            }
+            if (autoBlock) {
+                handleAutoBlock(player, ev.when);
+            }
         }
-        Entity entity = mc.theWorld.getEntityByID(packet.getEntityID());
-        if (!(entity instanceof EntityOtherPlayerMP)) {
-            return;
-        }
-        EntityOtherPlayerMP player = (EntityOtherPlayerMP) entity;
+    }
+
+    /**
+     * AutoBlock heuristic for one swing. {@code isUsingItem()}/{@code getHeldItem()} are
+     * read up to one tick after the swing arrived — intentional, since AutoBlock confirms
+     * across {@link #AUTOBLOCK_MIN_HITS} hits within {@link #AUTOBLOCK_WINDOW_MS}, which
+     * tolerates the deferral. Do NOT inline this back into channelRead: it touches the
+     * live world entity and must stay on the client thread.
+     */
+    private void handleAutoBlock(EntityOtherPlayerMP player, long now) {
         ItemStack held = player.getHeldItem();
         if (held == null || !(held.getItem() instanceof ItemSword)) {
             return;
@@ -234,7 +271,6 @@ public class AntiCheatService {
 
         // Confirm across multiple hits in a short window — avoids one-off network reordering.
         UUID id = player.getUniqueID();
-        long now = System.currentTimeMillis();
         AutoBlockState st = autoBlockStates.get(id);
         if (st == null || now - st.firstHit > AUTOBLOCK_WINDOW_MS) {
             st = new AutoBlockState();
@@ -249,30 +285,13 @@ public class AntiCheatService {
         }
     }
 
-    // ---------------------------------------------------------------------
-    // CPS tracker (packet-driven)
-    // ---------------------------------------------------------------------
-
     /**
-     * Records a swing-arm packet timestamp for the source player. Unlike AutoBlock this counts
-     * every swing regardless of held item, so the rolling 1-second window reflects raw click rate.
-     * Runs on the netty thread.
+     * Records a swing-arm timestamp for the source player. Unlike AutoBlock this counts
+     * every swing regardless of held item, so the rolling 1-second window reflects raw
+     * click rate. Called from drainSwings on the client thread; read by getCps on the
+     * render thread, hence the concurrent map plus per-deque lock.
      */
-    private void recordSwing(S0BPacketAnimation packet) {
-        if (packet.getAnimationType() != 0) {
-            return;
-        }
-        Minecraft mc = Minecraft.getMinecraft();
-        if (mc == null || mc.theWorld == null) {
-            return;
-        }
-        Entity entity = mc.theWorld.getEntityByID(packet.getEntityID());
-        if (!(entity instanceof EntityOtherPlayerMP)) {
-            return;
-        }
-        UUID id = ((EntityOtherPlayerMP) entity).getUniqueID();
-        long now = System.currentTimeMillis();
-
+    private void recordSwing(UUID id, long now) {
         Deque<Long> deque = swingTimes.get(id);
         if (deque == null) {
             deque = new ArrayDeque<Long>();
@@ -519,6 +538,16 @@ public class AntiCheatService {
         final long when;
         PlacementEvent(BlockPos pos, long when) {
             this.pos = pos;
+            this.when = when;
+        }
+    }
+
+    /** A swing-arm packet captured on the netty thread, drained on the client thread. */
+    private static final class SwingEvent {
+        final int entityId;
+        final long when;
+        SwingEvent(int entityId, long when) {
+            this.entityId = entityId;
             this.when = when;
         }
     }
