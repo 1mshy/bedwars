@@ -274,13 +274,17 @@ public class BedwarsStats {
             return ThreatLevel.NICKED;
         }
 
-        if (stars >= 500 || fkdr >= 6.0) {
+        // Thresholds are configurable via ModConfig. The config keys are named for the
+        // tier they *open* into (the "high" star/FKDR threshold is the EXTREME boundary,
+        // "medium" the HIGH boundary, "low" the MEDIUM boundary). Defaults match the
+        // previous hardcoded literals (500/300/100 stars, 6.0/4.0/2.0 FKDR).
+        if (stars >= ModConfig.getHighStarThreshold() || fkdr >= ModConfig.getHighFkdrThreshold()) {
             return ThreatLevel.EXTREME;
         }
-        if (stars >= 300 || fkdr >= 4.0) {
+        if (stars >= ModConfig.getMediumStarThreshold() || fkdr >= ModConfig.getMediumFkdrThreshold()) {
             return ThreatLevel.HIGH;
         }
-        if (stars >= 100 || fkdr >= 2.0) {
+        if (stars >= ModConfig.getLowStarThreshold() || fkdr >= ModConfig.getLowFkdrThreshold()) {
             return ThreatLevel.MEDIUM;
         }
         return ThreatLevel.LOW;

@@ -2,6 +2,7 @@ package com.imshy.bedwars.runtime;
 
 import com.imshy.bedwars.AudioCueManager;
 import com.imshy.bedwars.AutoBlacklistManager;
+import com.imshy.bedwars.BedwarsMod;
 import com.imshy.bedwars.BedwarsStats;
 import com.imshy.bedwars.HypixelAPI;
 import com.imshy.bedwars.HypixelMessages;
@@ -24,6 +25,7 @@ import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.client.event.RenderLivingEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.event.entity.EntityJoinWorldEvent;
+import net.minecraftforge.fml.client.event.ConfigChangedEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 
@@ -211,6 +213,16 @@ public class BedwarsRuntime {
             if (name != null && !name.equals(selfName)) {
                 state.partyMemberNames.add(name);
             }
+        }
+    }
+
+    @SubscribeEvent
+    public void onConfigChanged(ConfigChangedEvent.OnConfigChangedEvent event) {
+        // Fired on MinecraftForge.EVENT_BUS by GuiConfig when the user saves the in-game
+        // settings screen. Re-read the (already in-memory, GUI-edited) Configuration into
+        // ModConfig's fields and persist — without this, GUI edits never take effect.
+        if (BedwarsMod.MODID.equals(event.modID)) {
+            ModConfig.syncFromConfig();
         }
     }
 
@@ -416,9 +428,10 @@ public class BedwarsRuntime {
         lobbyTrackerService.trimRecentJoins();
 
         if (ModConfig.isHudEnabled()) {
-            // Auto-expire detected players after 16 seconds
+            // Auto-expire detected players after the configured display duration.
             if (state.chatDetectedStartTime > 0
-                    && System.currentTimeMillis() - state.chatDetectedStartTime > 16000) {
+                    && System.currentTimeMillis() - state.chatDetectedStartTime
+                            > ModConfig.getDisplayDuration() * 1000L) {
                 synchronized (state.chatDetectedPlayers) {
                     state.chatDetectedPlayers.clear();
                 }

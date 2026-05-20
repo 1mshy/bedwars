@@ -22,7 +22,7 @@ public class ModConfig {
     // Settings values
     private static boolean modEnabled = true;
     private static String apiKey = "";
-    private static int displayDuration = 10; // seconds
+    private static int displayDuration = 16; // seconds
     private static int lowStarThreshold = 100;
     private static int mediumStarThreshold = 300;
     private static int highStarThreshold = 500;
@@ -166,7 +166,20 @@ public class ModConfig {
     public static void loadConfig() {
         try {
             config.load();
+        } catch (Exception e) {
+            LOGGER.error("Error loading config from disk: {}", e.getMessage());
+        }
+        syncFromConfig();
+    }
 
+    /**
+     * Re-reads the in-memory {@link Configuration} into the static fields and persists
+     * any changes. Unlike {@link #loadConfig()} this deliberately does NOT reload from
+     * disk: the in-game GUI writes edits into the Property objects before firing
+     * OnConfigChangedEvent, so reloading from disk here would discard those edits.
+     */
+    public static void syncFromConfig() {
+        try {
             // API key stored in "general" category
             Property apiKeyProp = config.get(
                     Configuration.CATEGORY_GENERAL,
@@ -179,7 +192,7 @@ public class ModConfig {
             Property displayDurationProp = config.get(
                     Configuration.CATEGORY_GENERAL,
                     "displayDuration",
-                    10,
+                    16,
                     "How long (seconds) to show player info on screen",
                     5, 60);
             displayDuration = displayDurationProp.getInt();
