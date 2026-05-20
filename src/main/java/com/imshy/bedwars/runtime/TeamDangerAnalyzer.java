@@ -20,8 +20,12 @@ import java.util.Map;
 
 public class TeamDangerAnalyzer {
     private static final int TEAM_DANGER_MIN_TEAMS = 2;
+    /** Memoization window for the team-danger summary (full tab scan + sort + fetches). */
+    private static final long SUMMARY_CACHE_MS = 1000;
 
     private final RuntimeState state;
+    private List<TeamDangerEntry> cachedSummary;
+    private long cachedSummaryTime;
 
     TeamDangerAnalyzer(RuntimeState state) {
         this.state = state;
@@ -62,7 +66,24 @@ public class TeamDangerAnalyzer {
         return lines;
     }
 
+    /**
+     * Returns the per-team danger summary, memoized for {@link #SUMMARY_CACHE_MS}. The HUD
+     * calls this up to 3x per frame and the rush predictor twice per check; recomputing it
+     * each time (full tab scan + map alloc + sort, plus triggering stat fetches) was pure
+     * waste and made async fetches a per-frame side effect. The cache bounds that work to
+     * roughly once per second. The returned list is shared — callers must not mutate it.
+     */
     public List<TeamDangerEntry> buildTeamDangerSummary(Minecraft mc) {
+        long now = System.currentTimeMillis();
+        if (cachedSummary != null && now - cachedSummaryTime < SUMMARY_CACHE_MS) {
+            return cachedSummary;
+        }
+        cachedSummary = computeTeamDangerSummary(mc);
+        cachedSummaryTime = now;
+        return cachedSummary;
+    }
+
+    private List<TeamDangerEntry> computeTeamDangerSummary(Minecraft mc) {
         if (state.gamePhase != GamePhase.IN_GAME || mc == null || mc.theWorld == null || mc.thePlayer == null) {
             return new ArrayList<TeamDangerEntry>();
         }
