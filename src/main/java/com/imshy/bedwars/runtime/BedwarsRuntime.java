@@ -968,74 +968,11 @@ public class BedwarsRuntime {
         HypixelAPI.fetchStatsAsync(chatterName, new HypixelAPI.StatsCallback() {
             @Override
             public void onStatsLoaded(BedwarsStats stats) {
-                BedwarsStats.ThreatLevel threat = stats.getThreatLevel();
-
-                // Add to persistent HUD list (deduplicate)
-                synchronized (state.chatDetectedPlayers) {
-                    boolean alreadyTracked = false;
-                    for (ChatDetectedPlayer cdp : state.chatDetectedPlayers) {
-                        if (cdp.name.equals(chatterName)) {
-                            alreadyTracked = true;
-                            break;
-                        }
-                    }
-                    if (!alreadyTracked) {
-                        state.chatDetectedPlayers.add(
-                                new ChatDetectedPlayer(chatterName, stats));
-                        if (state.chatDetectedStartTime == 0) {
-                            state.chatDetectedStartTime = System.currentTimeMillis();
-                        }
-                    }
-                }
-
-                // Fallback to chat message when HUD is disabled
-                if (!ModConfig.isHudEnabled() || !ModConfig.isHudChatDetectedEnabled()) {
-                    Minecraft mc = Minecraft.getMinecraft();
-                    if (mc.thePlayer != null) {
-                        mc.thePlayer.addChatMessage(new ChatComponentText(
-                                EnumChatFormatting.GREEN + "[BW] " +
-                                        stats.getThreatColor() + chatterName + " " +
-                                        stats.getDisplayString()));
-                    }
-                }
-
-                if (state.autoplayEnabled) {
-                    String maxThreatLevel = ModConfig.getAutoplayMaxThreatLevel();
-                    boolean isThreat = false;
-
-                    if (maxThreatLevel.equals("HIGH")) {
-                        isThreat = (threat == BedwarsStats.ThreatLevel.HIGH ||
-                                threat == BedwarsStats.ThreatLevel.EXTREME);
-                    } else if (maxThreatLevel.equals("EXTREME")) {
-                        isThreat = (threat == BedwarsStats.ThreatLevel.EXTREME);
-                    }
-
-                    if (isThreat) {
-                        Minecraft mcInner = Minecraft.getMinecraft();
-
-                        boolean isTeammate = false;
-                        if (mcInner.theWorld != null && mcInner.thePlayer != null) {
-                            for (EntityPlayer p : mcInner.theWorld.playerEntities) {
-                                if (p.getName().equals(chatterName)) {
-                                    isTeammate = matchThreatService.isTeammate(
-                                            mcInner, mcInner.thePlayer, p);
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (!isTeammate) {
-                            String threatMessage = EnumChatFormatting.RED + "Chat threat detected: " +
-                                    EnumChatFormatting.YELLOW + chatterName +
-                                    " (" + threat.name() + ")";
-                            if (ModConfig.isAutoplayRequeueEnabled() || state.gamePhase != GamePhase.IN_GAME) {
-                                worldScanService.requeueAutoplay(mcInner, threatMessage);
-                            } else {
-                                state.autoplayEnabled = false;
-                            }
-                        }
-                    }
-                }
+                // This callback may run on the HypixelAPI executor pool. Marshal all
+                // world iteration, chat mutation, and shared-state writes onto the
+                // client thread, where those operations are safe in 1.8.9.
+                Minecraft.getMinecraft().addScheduledTask(
+                        () -> applyChatStatLookup(chatterName, stats));
             }
 
             @Override
@@ -1043,6 +980,86 @@ public class BedwarsRuntime {
                 LOGGER.warn("Chat lookup error for {}: {}", chatterName, error);
             }
         });
+    }
+
+    /**
+     * Applies a resolved chat-detected stat lookup: updates the HUD list, optionally
+     * prints a fallback chat line, and drives autoplay threat handling. Always invoked
+     * on the client thread (scheduled from the {@link HypixelAPI.StatsCallback}, which
+     * may fire on the executor pool), so the world iteration, chat mutation, and shared
+     * state writes here are all main-thread-safe.
+     */
+    private void applyChatStatLookup(String chatterName, BedwarsStats stats) {
+        Minecraft mc = Minecraft.getMinecraft();
+        // The scheduled task can run up to a tick after the lookup resolved; re-check
+        // the preconditions that handleChatMessageStatLookup verified at entry.
+        if (mc == null || mc.thePlayer == null || state.disconnectedFromGame) {
+            return;
+        }
+
+        BedwarsStats.ThreatLevel threat = stats.getThreatLevel();
+
+        // Add to persistent HUD list (deduplicate)
+        synchronized (state.chatDetectedPlayers) {
+            boolean alreadyTracked = false;
+            for (ChatDetectedPlayer cdp : state.chatDetectedPlayers) {
+                if (cdp.name.equals(chatterName)) {
+                    alreadyTracked = true;
+                    break;
+                }
+            }
+            if (!alreadyTracked) {
+                state.chatDetectedPlayers.add(
+                        new ChatDetectedPlayer(chatterName, stats));
+                if (state.chatDetectedStartTime == 0) {
+                    state.chatDetectedStartTime = System.currentTimeMillis();
+                }
+            }
+        }
+
+        // Fallback to chat message when HUD is disabled
+        if (!ModConfig.isHudEnabled() || !ModConfig.isHudChatDetectedEnabled()) {
+            mc.thePlayer.addChatMessage(new ChatComponentText(
+                    EnumChatFormatting.GREEN + "[BW] " +
+                            stats.getThreatColor() + chatterName + " " +
+                            stats.getDisplayString()));
+        }
+
+        if (state.autoplayEnabled) {
+            String maxThreatLevel = ModConfig.getAutoplayMaxThreatLevel();
+            boolean isThreat = false;
+
+            if (maxThreatLevel.equals("HIGH")) {
+                isThreat = (threat == BedwarsStats.ThreatLevel.HIGH ||
+                        threat == BedwarsStats.ThreatLevel.EXTREME);
+            } else if (maxThreatLevel.equals("EXTREME")) {
+                isThreat = (threat == BedwarsStats.ThreatLevel.EXTREME);
+            }
+
+            if (isThreat) {
+                boolean isTeammate = false;
+                if (mc.theWorld != null) {
+                    for (EntityPlayer p : mc.theWorld.playerEntities) {
+                        if (p.getName().equals(chatterName)) {
+                            isTeammate = matchThreatService.isTeammate(
+                                    mc, mc.thePlayer, p);
+                            break;
+                        }
+                    }
+                }
+
+                if (!isTeammate) {
+                    String threatMessage = EnumChatFormatting.RED + "Chat threat detected: " +
+                            EnumChatFormatting.YELLOW + chatterName +
+                            " (" + threat.name() + ")";
+                    if (ModConfig.isAutoplayRequeueEnabled() || state.gamePhase != GamePhase.IN_GAME) {
+                        worldScanService.requeueAutoplay(mc, threatMessage);
+                    } else {
+                        state.autoplayEnabled = false;
+                    }
+                }
+            }
+        }
     }
 
     private void maybeRequestRenderFetch(String playerName) {

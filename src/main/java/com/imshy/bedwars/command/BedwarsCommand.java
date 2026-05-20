@@ -87,11 +87,8 @@ public class BedwarsCommand extends CommandBase {
             HypixelAPI.fetchStatsAsync(targetPlayer, new HypixelAPI.StatsCallback() {
                 @Override
                 public void onStatsLoaded(BedwarsStats stats) {
-                    Minecraft mc = Minecraft.getMinecraft();
-                    if (mc.thePlayer == null) {
-                        return;
-                    }
-
+                    // May fire on the HypixelAPI executor pool; build the message here
+                    // (pure CPU) but defer the chat-GUI mutation to the client thread.
                     StringBuilder sb = new StringBuilder();
                     sb.append(EnumChatFormatting.GOLD).append("=== ").append(targetPlayer).append(" ===\n");
                     sb.append(EnumChatFormatting.WHITE).append("Stars: ")
@@ -119,16 +116,24 @@ public class BedwarsCommand extends CommandBase {
                     sb.append(EnumChatFormatting.WHITE).append("Threat: ")
                       .append(stats.getThreatColor()).append(stats.getThreatLevel().name());
 
-                    mc.thePlayer.addChatMessage(new ChatComponentText(sb.toString()));
+                    final String message = sb.toString();
+                    Minecraft.getMinecraft().addScheduledTask(() -> {
+                        Minecraft client = Minecraft.getMinecraft();
+                        if (client.thePlayer != null) {
+                            client.thePlayer.addChatMessage(new ChatComponentText(message));
+                        }
+                    });
                 }
 
                 @Override
                 public void onError(String error) {
-                    Minecraft mc = Minecraft.getMinecraft();
-                    if (mc.thePlayer != null) {
-                        mc.thePlayer.addChatMessage(new ChatComponentText(
-                                EnumChatFormatting.RED + "Error: " + error));
-                    }
+                    Minecraft.getMinecraft().addScheduledTask(() -> {
+                        Minecraft client = Minecraft.getMinecraft();
+                        if (client.thePlayer != null) {
+                            client.thePlayer.addChatMessage(new ChatComponentText(
+                                    EnumChatFormatting.RED + "Error: " + error));
+                        }
+                    });
                 }
             });
 
@@ -162,24 +167,28 @@ public class BedwarsCommand extends CommandBase {
 
                     @Override
                     public void onStatsLoaded(BedwarsStats stats) {
-                        Minecraft mc = Minecraft.getMinecraft();
-                        if (mc.thePlayer != null) {
-                            mc.thePlayer.addChatMessage(new ChatComponentText(
-                                    stats.getThreatColor() + playerName + " " +
-                                            EnumChatFormatting.WHITE + "[" + stats.getStars() + "⭐] " +
-                                            EnumChatFormatting.YELLOW + String.format("%.2f", stats.getFkdr())
-                                            + " FKDR " +
-                                            EnumChatFormatting.GRAY + "(" + stats.getThreatLevel().name() + ")"));
-                        }
+                        final String message = stats.getThreatColor() + playerName + " " +
+                                EnumChatFormatting.WHITE + "[" + stats.getStars() + "⭐] " +
+                                EnumChatFormatting.YELLOW + String.format("%.2f", stats.getFkdr())
+                                + " FKDR " +
+                                EnumChatFormatting.GRAY + "(" + stats.getThreatLevel().name() + ")";
+                        Minecraft.getMinecraft().addScheduledTask(() -> {
+                            Minecraft client = Minecraft.getMinecraft();
+                            if (client.thePlayer != null) {
+                                client.thePlayer.addChatMessage(new ChatComponentText(message));
+                            }
+                        });
                     }
 
                     @Override
                     public void onError(String error) {
-                        Minecraft mc = Minecraft.getMinecraft();
-                        if (mc.thePlayer != null) {
-                            mc.thePlayer.addChatMessage(new ChatComponentText(
-                                    EnumChatFormatting.RED + playerName + ": " + error));
-                        }
+                        Minecraft.getMinecraft().addScheduledTask(() -> {
+                            Minecraft client = Minecraft.getMinecraft();
+                            if (client.thePlayer != null) {
+                                client.thePlayer.addChatMessage(new ChatComponentText(
+                                        EnumChatFormatting.RED + playerName + ": " + error));
+                            }
+                        });
                     }
                 });
             }
