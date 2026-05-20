@@ -204,16 +204,21 @@ public class WorldScanService {
         int scanRangeSq = scanRange * scanRange;
         for (int x = -scanRange; x <= scanRange; x++) {
             for (int z = -scanRange; z <= scanRange; z++) {
-                // Scan a cylinder, not a cube: skip (x,z) columns beyond the scan radius so
-                // the detected shape matches the spherical distanceSq eviction below. Cube
-                // corners (radius < dist <= radius*sqrt2) were previously added then evicted
-                // on the next pass — visible label flapping. This also drops ~21% of cells.
+                // Cheap column pre-filter: skip whole (x,z) columns beyond the horizontal
+                // radius (all 41 y-cells at once) instead of walking a full cube's corners.
                 // (The cluster BFS in isCollapsedClusterMember may still cross this boundary;
                 // that's intended — we only gate where a scan starts, not the cluster walk.)
                 if (x * x + z * z > scanRangeSq) {
                     continue;
                 }
                 for (int y = -20; y <= 20; y++) {
+                    // Match the 3D distanceSq eviction radius exactly (x^2+y^2+z^2 is the
+                    // squared distance from the player to this cell, the same metric used in
+                    // the eviction loop below) so a block is never added here only to be
+                    // evicted next pass — the cube produced exactly that label flapping.
+                    if (x * x + y * y + z * z > scanRangeSq) {
+                        continue;
+                    }
                     BlockPos checkPos = playerPos.add(x, y, z);
                     if (!mc.theWorld.isBlockLoaded(checkPos)) {
                         continue;
