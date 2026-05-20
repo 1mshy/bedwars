@@ -31,7 +31,8 @@ public class LastSeenArrowRenderer {
     private static final int ARROW_HALF_WIDTH = 5;
     private static final int LABEL_OFFSET = 14;
 
-    public void render(ScaledResolution resolution, Minecraft mc, EnemyTrackingService enemyTrackingService) {
+    public void render(ScaledResolution resolution, Minecraft mc, EnemyTrackingService enemyTrackingService,
+                       float partialTicks) {
         if (!ModConfig.isModEnabled() || !ModConfig.isHudEnabled()) {
             return;
         }
@@ -65,12 +66,20 @@ public class LastSeenArrowRenderer {
         double radiusX = Math.max(40, centerX - margin);
         double radiusY = Math.max(40, centerY - margin);
 
-        // Camera yaw in radians where 0 means looking south (+Z) in Minecraft.
-        double yawRad = Math.toRadians(mc.thePlayer.rotationYaw);
+        // Use the frame-interpolated camera yaw and player position (this runs every frame,
+        // many per tick) so the arrows track the smoothly-rotating scene instead of snapping
+        // 20x/sec to the end-of-tick values. rotationYaw is unbounded, so prev->current
+        // interpolation has no wrap discontinuity — same approach vanilla uses for the camera.
+        float interpYaw = mc.thePlayer.prevRotationYaw
+                + (mc.thePlayer.rotationYaw - mc.thePlayer.prevRotationYaw) * partialTicks;
+        double yawRad = Math.toRadians(interpYaw);
         double forwardX = -Math.sin(yawRad);
         double forwardZ = Math.cos(yawRad);
         double rightX = -forwardZ;
         double rightZ = forwardX;
+
+        double playerX = mc.thePlayer.prevPosX + (mc.thePlayer.posX - mc.thePlayer.prevPosX) * partialTicks;
+        double playerZ = mc.thePlayer.prevPosZ + (mc.thePlayer.posZ - mc.thePlayer.prevPosZ) * partialTicks;
 
         FontRenderer fr = mc.fontRendererObj;
 
@@ -97,8 +106,8 @@ public class LastSeenArrowRenderer {
             }
 
             // Direction in world coordinates from the player to the last-seen point.
-            double dx = data.lastSeenX - mc.thePlayer.posX;
-            double dz = data.lastSeenZ - mc.thePlayer.posZ;
+            double dx = data.lastSeenX - playerX;
+            double dz = data.lastSeenZ - playerZ;
             double horizontalDist = Math.sqrt(dx * dx + dz * dz);
             if (horizontalDist < 0.5) {
                 // Standing on top of us — no useful direction to draw.

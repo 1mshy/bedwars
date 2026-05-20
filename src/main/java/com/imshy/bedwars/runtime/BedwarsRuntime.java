@@ -448,7 +448,7 @@ public class BedwarsRuntime {
                         finalKillLedger, state.matchStartTime, state.chatDetectedPlayers);
 
                 if (state.gamePhase == GamePhase.IN_GAME) {
-                    lastSeenArrowRenderer.render(resolution, mc, enemyTrackingService);
+                    lastSeenArrowRenderer.render(resolution, mc, enemyTrackingService, event.partialTicks);
                 }
             }
 
