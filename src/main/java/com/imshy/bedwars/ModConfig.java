@@ -138,6 +138,7 @@ public class ModConfig {
     private static boolean antiCheatEnabled = true;
     private static boolean antiCheatAutoBlockEnabled = true;
     private static boolean antiCheatScaffoldEnabled = true;
+    private static boolean antiCheatCpsEnabled = true;
     private static int antiCheatFlagCooldownMs = 10000;
 
     // Forge config sub-categories used to organise the GUI config screen.
@@ -825,6 +826,13 @@ public class ModConfig {
                     "Flag players sprint-bridging with sharp downward pitch or pitch-snap behaviour (scaffold).");
             antiCheatScaffoldEnabled = antiCheatScaffoldProp.getBoolean();
 
+            Property antiCheatCpsProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "antiCheatCpsEnabled",
+                    true,
+                    "Track each player's clicks-per-second from swing packets and show it on their nametag (autoclicker indicator).");
+            antiCheatCpsEnabled = antiCheatCpsProp.getBoolean();
+
             Property antiCheatCooldownProp = config.get(
                     CATEGORY_NEW_FEATURES,
                     "antiCheatFlagCooldownMs",
@@ -1247,6 +1255,10 @@ public class ModConfig {
 
     public static boolean isAntiCheatScaffoldEnabled() {
         return antiCheatScaffoldEnabled;
+    }
+
+    public static boolean isAntiCheatCpsEnabled() {
+        return antiCheatCpsEnabled;
     }
 
     public static int getAntiCheatFlagCooldownMs() {

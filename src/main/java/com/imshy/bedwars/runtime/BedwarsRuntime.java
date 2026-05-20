@@ -730,6 +730,22 @@ public class BedwarsRuntime {
             threatText = sb.toString();
         }
 
+        // Append real-time clicks-per-second next to the threat level (autoclicker indicator).
+        if (ModConfig.isAntiCheatEnabled() && ModConfig.isAntiCheatCpsEnabled()) {
+            int cps = antiCheatService.getCps(player.getUniqueID());
+            if (cps > 0) {
+                EnumChatFormatting cpsColor;
+                if (cps >= 14) {
+                    cpsColor = EnumChatFormatting.RED;
+                } else if (cps >= 10) {
+                    cpsColor = EnumChatFormatting.YELLOW;
+                } else {
+                    cpsColor = EnumChatFormatting.GRAY;
+                }
+                threatText = threatText + " " + cpsColor + cps + " CPS";
+            }
+        }
+
         overlayRenderer.renderThreatLabel(player, threatText, event.x, event.y, event.z);
 
         // Render enemy tracking label below the threat label

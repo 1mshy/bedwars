@@ -33,6 +33,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
@@ -76,9 +77,17 @@ public class AntiCheatService {
     private static final int AUTOBLOCK_MIN_HITS = 2;
     private static final long AUTOBLOCK_WINDOW_MS = 4000L;
 
+    // CPS tracker: rolling window of swing-arm packets per player.
+    private static final long CPS_WINDOW_MS = 1000L;                    // 1-second sliding window
+    private static final int CPS_MAP_PRUNE_THRESHOLD = 256;             // size cap before pruning stale entries
+
     private final Map<UUID, Long> lastFlagAt = new HashMap<UUID, Long>();
     private final Map<UUID, ScaffoldState> scaffoldStates = new HashMap<UUID, ScaffoldState>();
     private final Map<UUID, AutoBlockState> autoBlockStates = new HashMap<UUID, AutoBlockState>();
+
+    // Swing timestamps per player; written on the netty thread, read on the render thread.
+    private final ConcurrentHashMap<UUID, Deque<Long>> swingTimes =
+            new ConcurrentHashMap<UUID, Deque<Long>>();
 
     // Block updates arrive on the netty thread; main-thread scanScaffold drains.
     private final ConcurrentLinkedQueue<PlacementEvent> pendingPlacements =
@@ -100,6 +109,10 @@ public class AntiCheatService {
         if (ModConfig.isAntiCheatScaffoldEnabled()) {
             scanScaffold(mc);
         }
+        // Bound swing-timestamp memory: scanScaffold's prune only runs when scaffold is on.
+        if (swingTimes.size() > CPS_MAP_PRUNE_THRESHOLD) {
+            pruneStateMaps(mc);
+        }
     }
 
     public void shutdown() {
@@ -109,6 +122,7 @@ public class AntiCheatService {
         lastFlagAt.clear();
         pendingPlacements.clear();
         recentPlacements.clear();
+        swingTimes.clear();
     }
 
     // ---------------------------------------------------------------------
@@ -161,9 +175,16 @@ public class AntiCheatService {
     private final class InboundHandler extends ChannelDuplexHandler {
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-            if (msg instanceof S0BPacketAnimation && ModConfig.isAntiCheatAutoBlockEnabled()) {
+            if (msg instanceof S0BPacketAnimation) {
+                // Record every swing for CPS (independent of AutoBlock); AutoBlock adds the sword/blocking check.
                 try {
-                    handleAnimation((S0BPacketAnimation) msg);
+                    S0BPacketAnimation anim = (S0BPacketAnimation) msg;
+                    if (ModConfig.isAntiCheatCpsEnabled()) {
+                        recordSwing(anim);
+                    }
+                    if (ModConfig.isAntiCheatAutoBlockEnabled()) {
+                        handleAnimation(anim);
+                    }
                 } catch (Throwable t) {
                     // Never let a detection error break the network pipeline.
                     LOGGER.debug("AntiCheat animation handling error", t);
@@ -225,6 +246,70 @@ public class AntiCheatService {
             sendLocalFlag(player.getName(), id, "AutoBlock");
             st.hits = 0;
             st.firstHit = now;
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // CPS tracker (packet-driven)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Records a swing-arm packet timestamp for the source player. Unlike AutoBlock this counts
+     * every swing regardless of held item, so the rolling 1-second window reflects raw click rate.
+     * Runs on the netty thread.
+     */
+    private void recordSwing(S0BPacketAnimation packet) {
+        if (packet.getAnimationType() != 0) {
+            return;
+        }
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc == null || mc.theWorld == null) {
+            return;
+        }
+        Entity entity = mc.theWorld.getEntityByID(packet.getEntityID());
+        if (!(entity instanceof EntityOtherPlayerMP)) {
+            return;
+        }
+        UUID id = ((EntityOtherPlayerMP) entity).getUniqueID();
+        long now = System.currentTimeMillis();
+
+        Deque<Long> deque = swingTimes.get(id);
+        if (deque == null) {
+            deque = new ArrayDeque<Long>();
+            Deque<Long> existing = swingTimes.putIfAbsent(id, deque);
+            if (existing != null) {
+                deque = existing;
+            }
+        }
+        synchronized (deque) {
+            deque.addLast(now);
+            pruneSwings(deque, now);
+        }
+    }
+
+    /**
+     * Returns the swing count for the given player over the last {@link #CPS_WINDOW_MS} millis,
+     * i.e. their current clicks-per-second. Read on the render thread.
+     */
+    public int getCps(UUID id) {
+        if (id == null) {
+            return 0;
+        }
+        Deque<Long> deque = swingTimes.get(id);
+        if (deque == null) {
+            return 0;
+        }
+        synchronized (deque) {
+            pruneSwings(deque, System.currentTimeMillis());
+            return deque.size();
+        }
+    }
+
+    /** Drops timestamps older than the rolling window. Caller must hold the deque's monitor. */
+    private void pruneSwings(Deque<Long> deque, long now) {
+        Long head;
+        while ((head = deque.peekFirst()) != null && now - head > CPS_WINDOW_MS) {
+            deque.pollFirst();
         }
     }
 
@@ -384,6 +469,7 @@ public class AntiCheatService {
         scaffoldStates.keySet().retainAll(live);
         autoBlockStates.keySet().retainAll(live);
         lastFlagAt.keySet().retainAll(live);
+        swingTimes.keySet().retainAll(live);
     }
 
     // ---------------------------------------------------------------------
