@@ -238,14 +238,15 @@ public class BedwarsStats {
         int level = 0;
         int remaining = exp;
 
-        // Experience thresholds per level (repeats every 100 levels with prestige bonus)
+        // Hypixel Bedwars XP cost per level *within* a prestige: the first four levels
+        // cost 500/1000/2000/3500, every level after costs a flat 5000. This pattern
+        // repeats identically each prestige (level % 100), so a full prestige is a
+        // constant 500+1000+2000+3500+96*5000 = 487,000 XP. There is no escalating
+        // per-prestige surcharge; adding one undercounts stars for high-level players.
         int[] levelThresholds = { 500, 1000, 2000, 3500, 5000 };
 
         while (remaining > 0) {
             int threshold = levelThresholds[Math.min(level % 100, 4)];
-            if (level >= 100) {
-                threshold += (level / 100) * 500;
-            }
 
             if (remaining >= threshold) {
                 remaining -= threshold;
