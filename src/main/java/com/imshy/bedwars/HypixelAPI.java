@@ -48,13 +48,17 @@ public class HypixelAPI {
         }
     }
 
-    // Cache to avoid repeat API calls (now with expiration)
-    private static final java.util.Map<String, CachedStats> statsCache = new java.util.HashMap<String, CachedStats>();
-    private static final java.util.Map<String, String> uuidCache = new java.util.HashMap<String, String>();
+    // Cache to avoid repeat API calls (now with expiration). Read on the client thread
+    // (getCachedStats / status) and written on the executor pool, so use concurrent maps.
+    private static final java.util.Map<String, CachedStats> statsCache =
+            new java.util.concurrent.ConcurrentHashMap<String, CachedStats>();
+    private static final java.util.Map<String, String> uuidCache =
+            new java.util.concurrent.ConcurrentHashMap<String, String>();
 
-    // Rate limiting tracking
+    // Rate limiting tracking. requestTimestamps does a compound read-modify-write in
+    // checkRateLimit and is also read from /bw status, so every access synchronizes on it.
     private static final java.util.List<Long> requestTimestamps = new java.util.ArrayList<Long>();
-    private static int rateLimitedRequests = 0;
+    private static volatile int rateLimitedRequests = 0;
     private static volatile String lastFetchError = null;
 
     private static final Logger LOGGER = LogManager.getLogger("BedwarsStats");
@@ -165,8 +169,10 @@ public class HypixelAPI {
             return;
         }
 
-        // Cache the UUID
-        uuidCache.put(playerName.toLowerCase(), uuid);
+        // Cache the UUID (skip nulls — ConcurrentHashMap forbids null values)
+        if (uuid != null) {
+            uuidCache.put(playerName.toLowerCase(), uuid);
+        }
 
         // Run API call on background thread
         executor.submit(new Runnable() {
@@ -275,23 +281,25 @@ public class HypixelAPI {
     private static boolean checkRateLimit() {
         long now = System.currentTimeMillis();
 
-        // Remove old timestamps outside the window
-        java.util.Iterator<Long> iter = requestTimestamps.iterator();
-        while (iter.hasNext()) {
-            if (now - iter.next() > RATE_LIMIT_WINDOW_MS) {
-                iter.remove();
+        synchronized (requestTimestamps) {
+            // Remove old timestamps outside the window
+            java.util.Iterator<Long> iter = requestTimestamps.iterator();
+            while (iter.hasNext()) {
+                if (now - iter.next() > RATE_LIMIT_WINDOW_MS) {
+                    iter.remove();
+                }
             }
-        }
 
-        // Check if we're at the limit
-        if (requestTimestamps.size() >= RATE_LIMIT_MAX) {
-            rateLimitedRequests++;
-            return false;
-        }
+            // Check if we're at the limit
+            if (requestTimestamps.size() >= RATE_LIMIT_MAX) {
+                rateLimitedRequests++;
+                return false;
+            }
 
-        // Record this request
-        requestTimestamps.add(now);
-        return true;
+            // Record this request
+            requestTimestamps.add(now);
+            return true;
+        }
     }
 
     /**
@@ -411,9 +419,11 @@ public class HypixelAPI {
         // Clean old rate limit timestamps
         long now = System.currentTimeMillis();
         int recentRequests = 0;
-        for (Long ts : requestTimestamps) {
-            if (now - ts <= RATE_LIMIT_WINDOW_MS) {
-                recentRequests++;
+        synchronized (requestTimestamps) {
+            for (Long ts : requestTimestamps) {
+                if (now - ts <= RATE_LIMIT_WINDOW_MS) {
+                    recentRequests++;
+                }
             }
         }
 

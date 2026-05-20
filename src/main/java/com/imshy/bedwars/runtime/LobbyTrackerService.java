@@ -232,7 +232,8 @@ public class LobbyTrackerService {
     static class PlayerJoinEntry {
         String playerName;
         long timestamp;
-        BedwarsStats stats;
+        // volatile: written on the HypixelAPI executor pool, read on the render thread.
+        volatile BedwarsStats stats;
         boolean isBlacklisted = false;
         int encounterCount = 0;
         int[] winLossRecord = null;

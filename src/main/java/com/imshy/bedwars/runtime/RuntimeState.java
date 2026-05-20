@@ -17,8 +17,10 @@ final class RuntimeState {
     static final long INITIAL_STAT_DISPLAY_MS = 15000;
 
     // --- Phase tracking ---
-    GamePhase gamePhase = GamePhase.IDLE;
-    boolean disconnectedFromGame = false;
+    // volatile: read/written across the client thread and (historically) the HypixelAPI
+    // executor pool; gamePhase is also read on the requeue worker thread.
+    volatile GamePhase gamePhase = GamePhase.IDLE;
+    volatile boolean disconnectedFromGame = false;
     long disconnectTime = 0;
     long matchStartTime = 0;
     long clientTickCounter = 0;
@@ -91,8 +93,9 @@ final class RuntimeState {
     long preGameBriefingScheduledTime = 0;
 
     // --- Cross-phase state ---
-    boolean autoplayEnabled = false;
-    String autoplayMode = "ones";
+    // volatile: both are read on the requeue worker thread (WorldScanService.requeueAutoplay).
+    volatile boolean autoplayEnabled = false;
+    volatile String autoplayMode = "ones";
     long autoplayCheckTime = 0;
     boolean autoplayPendingCheck = false;
     boolean autoplaySpamBlocked = false;
