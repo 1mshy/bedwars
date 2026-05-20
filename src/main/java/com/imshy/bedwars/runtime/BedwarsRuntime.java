@@ -254,7 +254,9 @@ public class BedwarsRuntime {
                 PlayerDatabase.getInstance().clearCurrentGame();
                 state.gamePhase = GamePhase.IDLE;
                 state.disconnectedFromGame = false;
-                state.chatDetectedPlayers.clear();
+                synchronized (state.chatDetectedPlayers) {
+                    state.chatDetectedPlayers.clear();
+                }
                 state.chatDetectedStartTime = 0;
                 state.lobbyBaitActive = false;
                 matchThreatService.clearBedTrackingState();
@@ -285,7 +287,9 @@ public class BedwarsRuntime {
                 db.clearCurrentGame();
                 state.gamePhase = GamePhase.IDLE;
                 state.disconnectedFromGame = false;
-                state.chatDetectedPlayers.clear();
+                synchronized (state.chatDetectedPlayers) {
+                    state.chatDetectedPlayers.clear();
+                }
                 state.chatDetectedStartTime = 0;
                 state.lobbyBaitActive = false;
                 matchThreatService.clearBedTrackingState();
