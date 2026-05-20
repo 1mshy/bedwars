@@ -62,7 +62,7 @@ public class ModConfig {
 
     // Generator display settings
     private static boolean generatorDisplayEnabled = true;
-    private static int generatorScanRange = 100; // blocks
+    private static int generatorScanRange = 64; // blocks
     private static int generatorLabelRenderDistance = 256; // blocks
 
     // Lobby bait messages
@@ -477,8 +477,9 @@ public class ModConfig {
             Property generatorScanRangeProp = config.get(
                     Configuration.CATEGORY_GENERAL,
                     "generatorScanRange",
-                    100,
-                    "Range (blocks) to scan for generators",
+                    64,
+                    "Range (blocks) to scan for generators. 64 covers a player's reachable "
+                            + "diamond/emerald gens; raise it for very large maps.",
                     50, 200);
             generatorScanRange = generatorScanRangeProp.getInt();
 

@@ -201,9 +201,19 @@ public class WorldScanService {
         long now = System.currentTimeMillis();
         Set<BlockPos> observedGenerators = new HashSet<BlockPos>();
 
+        int scanRangeSq = scanRange * scanRange;
         for (int x = -scanRange; x <= scanRange; x++) {
-            for (int y = -20; y <= 20; y++) {
-                for (int z = -scanRange; z <= scanRange; z++) {
+            for (int z = -scanRange; z <= scanRange; z++) {
+                // Scan a cylinder, not a cube: skip (x,z) columns beyond the scan radius so
+                // the detected shape matches the spherical distanceSq eviction below. Cube
+                // corners (radius < dist <= radius*sqrt2) were previously added then evicted
+                // on the next pass — visible label flapping. This also drops ~21% of cells.
+                // (The cluster BFS in isCollapsedClusterMember may still cross this boundary;
+                // that's intended — we only gate where a scan starts, not the cluster walk.)
+                if (x * x + z * z > scanRangeSq) {
+                    continue;
+                }
+                for (int y = -20; y <= 20; y++) {
                     BlockPos checkPos = playerPos.add(x, y, z);
                     if (!mc.theWorld.isBlockLoaded(checkPos)) {
                         continue;
@@ -247,7 +257,7 @@ public class WorldScanService {
             GeneratorEntry generator = entry.getValue();
             BlockPos generatorPos = entry.getKey();
 
-            if (playerPos.distanceSq(generatorPos) > scanRange * scanRange) {
+            if (playerPos.distanceSq(generatorPos) > scanRangeSq) {
                 iterator.remove();
                 continue;
             }
