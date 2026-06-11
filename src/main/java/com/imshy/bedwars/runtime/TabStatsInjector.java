@@ -157,7 +157,19 @@ public class TabStatsInjector {
         InjectedEntry entry = injected.get(uuid);
 
         if (entry != null && entry.matchesInjected(current)) {
-            // Our component is still installed — rebuild only if the stats changed.
+            // Our component is still installed. For synthesized bases, vanilla
+            // would re-evaluate team formatting live every frame — the server
+            // never resends a display name it never sent — so track scoreboard
+            // team changes (game-start recolors, rejoins) ourselves.
+            if (entry.baseSynthesized) {
+                String liveBase = ScorePlayerTeam.formatPlayerName(info.getPlayerTeam(), name);
+                if (liveBase != null && !liveBase.equals(entry.baseFormattedText)) {
+                    entry.baseFormattedText = liveBase;
+                    apply(info, entry, suffix);
+                    return;
+                }
+            }
+            // Rebuild only if the stats changed.
             if (suffix.equals(entry.suffix)) {
                 return;
             }

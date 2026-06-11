@@ -688,7 +688,10 @@ public class WorldScanService {
                 }
             }
 
-            if (dx <= 3.0D && dy <= 3.0D && dz <= 3.0D) {
+            // Same Chebyshev radius as the duplicate-suppression rule: any two
+            // anchors that could count the same items are collapsed to one.
+            if (dx <= GENERATOR_MERGE_RADIUS && dy <= GENERATOR_MERGE_RADIUS
+                    && dz <= GENERATOR_MERGE_RADIUS) {
                 count += item.getEntityItem().stackSize;
             }
         }

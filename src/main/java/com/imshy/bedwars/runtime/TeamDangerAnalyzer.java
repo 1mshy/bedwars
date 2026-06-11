@@ -262,6 +262,11 @@ public class TeamDangerAnalyzer {
      * retryable; permanent failures (bad API key) stay one-attempt.
      */
     private void requestTabPlayerStats(TabListPlayer tp) {
+        // Pause requeueing entirely while rate limited — the 1 Hz summary memo
+        // would otherwise retry every pass without ever succeeding.
+        if (HypixelAPI.isRateLimitBackoffActive()) {
+            return;
+        }
         final String tabName = tp.name;
         state.pendingTabListFetches.add(tabName);
         HypixelAPI.StatsCallback callback = new HypixelAPI.StatsCallback() {

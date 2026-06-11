@@ -105,6 +105,16 @@ public class ChatNameLinkerTest {
     }
 
     @Test
+    public void matchStartingOnTheCodeCharOfAPairIsRejected() {
+        // Candidate "aWildPig" must not match inside "§aWildPig": the 'a' is
+        // the color code, the rendered name is "WildPig" — linking here would
+        // look up the wrong player and orphan the '§'.
+        assertEquals(-1, ChatNameLinker.indexOfNameToken("§aWildPig charged", "aWildPig", 0));
+        // The real name in the same text still links.
+        assertEquals(3, ChatNameLinker.indexOfNameToken(" §aWildPig", "WildPig", 0));
+    }
+
+    @Test
     public void punctuationIsABoundary() {
         assertEquals(0, ChatNameLinker.indexOfNameToken("PlayerA: hello", "PlayerA", 0));
         assertEquals(1, ChatNameLinker.indexOfNameToken("(PlayerA)", "PlayerA", 0));

@@ -205,6 +205,12 @@ public class LobbyTrackerService {
                 continue;
             }
 
+            // Pause requeueing entirely while rate limited — retrying at scan
+            // cadence would churn the queue without ever succeeding.
+            if (HypixelAPI.isRateLimitBackoffActive()) {
+                continue;
+            }
+
             final String tabName = tp.name;
             state.pendingTabListFetches.add(tabName);
             HypixelAPI.StatsCallback callback = new HypixelAPI.StatsCallback() {

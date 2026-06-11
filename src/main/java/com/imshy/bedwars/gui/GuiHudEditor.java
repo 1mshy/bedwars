@@ -173,16 +173,8 @@ public class GuiHudEditor extends GuiScreen {
                 dragging = h;
                 grabDX = mouseX - h.x;
                 grabDY = mouseY - h.y;
-                if (!h.custom) {
-                    // Convert legacy placement into anchor+offset in-place so the
-                    // element does not jump when the drag begins.
-                    h.custom = true;
-                    h.anchorX = HudAnchorMath.nearestAnchorX(h.x, h.width, this.width);
-                    h.anchorY = HudAnchorMath.nearestAnchorY(h.y, h.height, this.height);
-                    h.offsetX = HudAnchorMath.offsetXFor(h.anchorX, h.x, h.width, this.width);
-                    h.offsetY = HudAnchorMath.offsetYFor(h.anchorY, h.y, h.height, this.height);
-                    applyLive(h);
-                }
+                // Legacy->custom conversion is deferred to the first actual
+                // movement: a click without a drag must not change anything.
                 return;
             }
         }
@@ -195,6 +187,15 @@ public class GuiHudEditor extends GuiScreen {
             return;
         }
         ElementHandle h = dragging;
+        if (!h.custom) {
+            // First movement of this press: convert legacy placement into
+            // anchor+offset in-place so the element does not jump.
+            h.custom = true;
+            h.anchorX = HudAnchorMath.nearestAnchorX(h.x, h.width, this.width);
+            h.anchorY = HudAnchorMath.nearestAnchorY(h.y, h.height, this.height);
+            h.offsetX = HudAnchorMath.offsetXFor(h.anchorX, h.x, h.width, this.width);
+            h.offsetY = HudAnchorMath.offsetYFor(h.anchorY, h.y, h.height, this.height);
+        }
         int newX = HudAnchorMath.clamp(mouseX - grabDX, 0, this.width - h.width);
         int newY = HudAnchorMath.clamp(mouseY - grabDY, 0, this.height - h.height);
         h.offsetX = HudAnchorMath.offsetXFor(h.anchorX, newX, h.width, this.width);
@@ -212,6 +213,10 @@ public class GuiHudEditor extends GuiScreen {
         }
         ElementHandle h = dragging;
         dragging = null;
+        if (!h.custom) {
+            // Pure click, never dragged — nothing was converted, nothing to snap.
+            return;
+        }
         // Snap to the nearest anchor (element center vs screen thirds) and
         // recompute offsets so the element stays exactly where it was dropped.
         h.anchorX = HudAnchorMath.nearestAnchorX(h.x, h.width, this.width);

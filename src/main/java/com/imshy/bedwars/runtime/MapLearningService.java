@@ -387,9 +387,20 @@ public class MapLearningService {
             JsonObject root = new JsonObject();
             root.add("maps", gson.toJsonTree(learnedMaps));
 
-            FileWriter writer = new FileWriter(DATA_FILE);
+            // Temp-file + rename so a crash mid-write can never truncate the
+            // data file. Pretty printing is kept deliberately: the file is
+            // small (bounded observations) and meant to be human-editable.
+            File tmp = new File(DATA_FILE + ".tmp");
+            FileWriter writer = new FileWriter(tmp);
             gson.toJson(root, writer);
             writer.close();
+            File target = new File(DATA_FILE);
+            if (target.exists() && !target.delete()) {
+                LOGGER.warn("Could not delete old learned map file before rename");
+            }
+            if (!tmp.renameTo(target)) {
+                LOGGER.warn("Could not move new learned map file into place");
+            }
 
             LOGGER.debug("Saved learned map data");
 

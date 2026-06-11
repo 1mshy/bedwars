@@ -79,11 +79,30 @@ public class HypixelAPI {
     // than this may legitimately point at a different account, so drop it at load.
     private static final long UUID_CACHE_TTL_MS = 30L * 24 * 60 * 60 * 1000;
 
-    // Epoch ms when each name->UUID pair was confirmed by a Mojang resolution.
-    // Only entries present here are persisted: tab-seeded UUIDs (which Hypixel
-    // spoofs for nicked players) stay in-memory for the session only.
-    private static final java.util.Map<String, Long> uuidRecordedAt =
-            new java.util.concurrent.ConcurrentHashMap<String, Long>();
+    // While rate limited, tab-scan paths pause requeueing for this long instead
+    // of retrying at their scan cadence (the team-danger path runs at 1 Hz).
+    private static final long RATE_LIMIT_BACKOFF_MS = 30 * 1000;
+    private static volatile long rateLimitBackoffUntil = 0;
+
+    /**
+     * Name -> Mojang-confirmed UUID + confirmation time. Only entries in this
+     * map are ever persisted, and the persisted value is taken from HERE — the
+     * overwritable uuidCache may hold a tab-seeded UUID (which Hypixel spoofs
+     * for nicked players) under the same name, and that one must stay
+     * in-memory for the session only.
+     */
+    private static final java.util.Map<String, ConfirmedUuid> confirmedUuids =
+            new java.util.concurrent.ConcurrentHashMap<String, ConfirmedUuid>();
+
+    private static final class ConfirmedUuid {
+        final String uuid;
+        final long recordedAt;
+
+        ConfirmedUuid(String uuid, long recordedAt) {
+            this.uuid = uuid;
+            this.recordedAt = recordedAt;
+        }
+    }
 
     private static volatile boolean uuidCacheDirty = false;
     private static volatile long lastUuidCacheFlush = 0;
@@ -425,6 +444,7 @@ public class HypixelAPI {
         if (!checkRateLimit()) {
             LOGGER.warn("Rate limited — request dropped (local throttle)");
             lastFetchError = "rate limited (local throttle)";
+            rateLimitBackoffUntil = System.currentTimeMillis() + RATE_LIMIT_BACKOFF_MS;
             return null;
         }
 
@@ -442,6 +462,7 @@ public class HypixelAPI {
                 LOGGER.warn("Hypixel API rate limit reached (429)");
                 rateLimitedRequests++;
                 lastFetchError = "rate limited by Hypixel (429)";
+                rateLimitBackoffUntil = System.currentTimeMillis() + RATE_LIMIT_BACKOFF_MS;
                 return null;
             }
             if (responseCode == 403) {
@@ -495,10 +516,13 @@ public class HypixelAPI {
      */
     private static void recordUuidMapping(String playerName, String uuid, boolean mojangConfirmed) {
         String key = playerName.toLowerCase();
-        String previous = uuidCache.put(key, uuid);
-        if (mojangConfirmed && (!uuid.equals(previous) || !uuidRecordedAt.containsKey(key))) {
-            uuidRecordedAt.put(key, Long.valueOf(System.currentTimeMillis()));
-            uuidCacheDirty = true;
+        uuidCache.put(key, uuid);
+        if (mojangConfirmed) {
+            ConfirmedUuid previous = confirmedUuids.get(key);
+            if (previous == null || !previous.uuid.equals(uuid)) {
+                confirmedUuids.put(key, new ConfirmedUuid(uuid, System.currentTimeMillis()));
+                uuidCacheDirty = true;
+            }
         }
     }
 
@@ -558,7 +582,7 @@ public class HypixelAPI {
                 }
                 String key = entry.getKey().toLowerCase();
                 uuidCache.put(key, uuid);
-                uuidRecordedAt.put(key, Long.valueOf(recordedAt));
+                confirmedUuids.put(key, new ConfirmedUuid(uuid, recordedAt));
                 loaded++;
             }
             LOGGER.info("Loaded {} cached UUID mappings", loaded);
@@ -588,7 +612,7 @@ public class HypixelAPI {
      * pretty Gson). Serialized under a private lock so two pool threads never
      * interleave writes; the write goes to a temp file that is renamed into
      * place so a JVM halt mid-write can never leave a truncated uuidcache.json.
-     * Only Mojang-confirmed entries (uuidRecordedAt) are persisted. Overflow
+     * Only Mojang-confirmed entries (confirmedUuids) are persisted. Overflow
      * policy: past UUID_CACHE_MAX_ENTRIES, only the first N entries in
      * (arbitrary) iteration order are persisted — the simplest honest cap. In
      * practice the map is bounded by the players actually seen, so overflow is
@@ -608,17 +632,13 @@ public class HypixelAPI {
 
                 JsonObject entries = new JsonObject();
                 int written = 0;
-                for (java.util.Map.Entry<String, Long> entry : uuidRecordedAt.entrySet()) {
+                for (java.util.Map.Entry<String, ConfirmedUuid> entry : confirmedUuids.entrySet()) {
                     if (written >= UUID_CACHE_MAX_ENTRIES) {
                         break;
                     }
-                    String uuid = uuidCache.get(entry.getKey());
-                    if (uuid == null) {
-                        continue;
-                    }
                     JsonObject obj = new JsonObject();
-                    obj.addProperty("uuid", uuid);
-                    obj.addProperty("t", entry.getValue());
+                    obj.addProperty("uuid", entry.getValue().uuid);
+                    obj.addProperty("t", entry.getValue().recordedAt);
                     entries.add(entry.getKey(), obj);
                     written++;
                 }
@@ -682,12 +702,27 @@ public class HypixelAPI {
     }
 
     /**
+     * True while a recent rate-limit drop (local throttle or Hypixel 429) is
+     * being backed off. Tab-scan paths use this to pause requeueing instead of
+     * retrying at their scan cadence; explicit user lookups (/bw lookup, /bw
+     * all) deliberately ignore it.
+     */
+    public static boolean isRateLimitBackoffActive() {
+        return System.currentTimeMillis() < rateLimitBackoffUntil;
+    }
+
+    /** Test seam: the live executor queue, to pin the priority-queue wiring. */
+    static java.util.concurrent.BlockingQueue<Runnable> executorQueueForTests() {
+        return executor.getQueue();
+    }
+
+    /**
      * Clear the stats cache
      */
     public static void clearCache() {
         statsCache.clear();
         uuidCache.clear();
-        uuidRecordedAt.clear();
+        confirmedUuids.clear();
         rateLimitedRequests = 0;
         // /bw clear is an explicit user action — rewrite the persisted UUID cache
         // right away so cleared entries do not resurrect next launch (PlayerDatabase

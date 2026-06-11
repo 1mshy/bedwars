@@ -24,6 +24,23 @@ public class KillFeedRenderer {
 
     private static final int LINE_HEIGHT = 10;
 
+    /** Line + measured width memoized per entry, invalidated when the cached
+     *  stats instance changes (same identity trick as TabStatsInjector). */
+    private static final class CachedLine {
+        final BedwarsStats statsIdentity;
+        final String line;
+        final int width;
+
+        CachedLine(BedwarsStats statsIdentity, String line, int width) {
+            this.statsIdentity = statsIdentity;
+            this.line = line;
+            this.width = width;
+        }
+    }
+
+    private final java.util.HashMap<KillFeedTracker.Entry, CachedLine> lineCache =
+            new java.util.HashMap<KillFeedTracker.Entry, CachedLine>();
+
     public void render(ScaledResolution resolution, Minecraft mc, KillFeedTracker tracker) {
         if (!ModConfig.isModEnabled() || !ModConfig.isKillfeedEnabled()) {
             return;
@@ -40,14 +57,30 @@ public class KillFeedRenderer {
         FontRenderer fr = mc.fontRendererObj;
         double scale = ModConfig.getHudScale();
 
+        // Expired entries leave stale keys behind; the tracker holds at most 6
+        // active, so the cache only grows across match transitions.
+        if (lineCache.size() > 24) {
+            lineCache.clear();
+        }
+
         List<String> lines = new ArrayList<String>(entries.size());
+        int[] widths = new int[entries.size()];
         int maxWidth = 0;
+        int index = 0;
         for (KillFeedTracker.Entry entry : entries) {
-            String line = buildLine(entry);
-            lines.add(line);
-            int w = fr.getStringWidth(line);
-            if (w > maxWidth) {
-                maxWidth = w;
+            BedwarsStats stats = entry.killerName == null
+                    ? null
+                    : HypixelAPI.getCachedStats(entry.killerName);
+            CachedLine cached = lineCache.get(entry);
+            if (cached == null || cached.statsIdentity != stats) {
+                String line = buildLine(entry, stats);
+                cached = new CachedLine(stats, line, fr.getStringWidth(line));
+                lineCache.put(entry, cached);
+            }
+            lines.add(cached.line);
+            widths[index++] = cached.width;
+            if (cached.width > maxWidth) {
+                maxWidth = cached.width;
             }
         }
 
@@ -62,10 +95,10 @@ public class KillFeedRenderer {
                 scale, maxWidth, lines.size() * LINE_HEIGHT);
 
         int drawY = origin[1];
-        for (String line : lines) {
+        for (int i = 0; i < lines.size(); i++) {
             // Right-anchored feeds keep lines flush against the screen edge.
-            int drawX = rightAnchored ? origin[0] + maxWidth - fr.getStringWidth(line) : origin[0];
-            fr.drawStringWithShadow(line, drawX, drawY, 0xFFFFFFFF);
+            int drawX = rightAnchored ? origin[0] + maxWidth - widths[i] : origin[0];
+            fr.drawStringWithShadow(lines.get(i), drawX, drawY, 0xFFFFFFFF);
             drawY += LINE_HEIGHT;
         }
 
@@ -76,13 +109,12 @@ public class KillFeedRenderer {
      * "<threatColor>killer §7killed <teamColor>victim" or
      * "§7victim §8died" for killer-less entries.
      */
-    private static String buildLine(KillFeedTracker.Entry entry) {
+    private static String buildLine(KillFeedTracker.Entry entry, BedwarsStats stats) {
         if (entry.killerName == null) {
             return EnumChatFormatting.GRAY + entry.victimName + " "
                     + EnumChatFormatting.DARK_GRAY + "died";
         }
         String threatColor = EnumChatFormatting.GRAY.toString();
-        BedwarsStats stats = HypixelAPI.getCachedStats(entry.killerName);
         if (stats != null && stats.isLoaded()) {
             threatColor = stats.getThreatColor();
         }
@@ -110,26 +142,11 @@ public class KillFeedRenderer {
             return new int[]{(int) Math.round(rawX / scale), (int) Math.round(rawY / scale)};
         }
 
+        // Delegate to the unit-tested helper so the editor proxy and the live
+        // feed can never drift apart.
         int screenWidth = (int) (rawScreenWidth / scale);
         int screenHeight = (int) (rawScreenHeight / scale);
-        int offX = ModConfig.getKillfeedOffsetX();
-        int offY = ModConfig.getKillfeedOffsetY();
-        int x, y;
-
-        if ("TOP_RIGHT".equals(anchor)) {
-            x = screenWidth - width - offX;
-            y = offY;
-        } else if ("BOTTOM_LEFT".equals(anchor)) {
-            x = offX;
-            y = screenHeight - height - offY;
-        } else if ("BOTTOM_RIGHT".equals(anchor)) {
-            x = screenWidth - width - offX;
-            y = screenHeight - height - offY;
-        } else {
-            x = offX;
-            y = offY;
-        }
-
-        return new int[]{x, y};
+        return HudAnchorMath.legacyCornerOrigin(anchor, screenWidth, screenHeight,
+                width, height, ModConfig.getKillfeedOffsetX(), ModConfig.getKillfeedOffsetY());
     }
 }

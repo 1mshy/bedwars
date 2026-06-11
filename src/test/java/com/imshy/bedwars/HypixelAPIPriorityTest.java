@@ -105,6 +105,14 @@ public class HypixelAPIPriorityTest {
     // ==================== QUEUE INTEGRATION ====================
 
     @Test
+    public void liveExecutorUsesAPriorityQueue() {
+        // Pins the wiring, not just the comparator: swapping the executor back
+        // to a plain FIFO pool (or submitting FutureTask-wrapped jobs) would
+        // pass every comparator test while silently dropping prioritization.
+        assertTrue(HypixelAPI.executorQueueForTests() instanceof PriorityBlockingQueue);
+    }
+
+    @Test
     public void priorityBlockingQueueDrainsPriorityThenFifo() {
         PriorityBlockingQueue<Runnable> queue = new PriorityBlockingQueue<Runnable>();
         queue.offer(task(HypixelAPI.FetchPriority.NORMAL, 2));

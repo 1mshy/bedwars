@@ -60,8 +60,9 @@ public class MatchSummaryRenderer {
             originY = HudAnchorMath.computeY(ModConfig.getMatchSummaryAnchorY(),
                     screenHeight, height, ModConfig.getMatchSummaryAnchorOffsetY());
         } else {
-            originX = (screenWidth - width) / 2;
-            originY = Math.max(20, (screenHeight - height) / 3);
+            int[] origin = HudAnchorMath.legacyCardOrigin(screenWidth, screenHeight, width, height, 3);
+            originX = origin[0];
+            originY = origin[1];
         }
 
         // Fade the panel toward the end of its TTL so it doesn't snap away.

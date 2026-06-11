@@ -55,9 +55,11 @@ public final class ChatNameLinker {
             return null;
         }
 
-        ChatComponentText newRoot = new ChatComponentText("");
-        newRoot.setChatStyle(root.getChatStyle().createShallowCopy());
-
+        // Accumulate the would-be children first WITHOUT touching the original
+        // tree: appendSibling re-points each component's parent style, so on
+        // the no-match path the originals must stay pristine for later handlers
+        // that rely on 1.8.9 parent-style inheritance from the real root.
+        List<IChatComponent> newChildren = new ArrayList<IChatComponent>();
         int[] budget = {MAX_LINKS_PER_MESSAGE};
         boolean changed = false;
 
@@ -66,12 +68,10 @@ public final class ChatNameLinker {
         String rootText = ((ChatComponentText) root).getChatComponentText_TextValue();
         List<IChatComponent> rootSegments = splitTextNode(rootText, null, candidateNames, budget);
         if (rootSegments != null) {
-            for (IChatComponent segment : rootSegments) {
-                newRoot.appendSibling(segment);
-            }
+            newChildren.addAll(rootSegments);
             changed = true;
         } else if (rootText != null && !rootText.isEmpty()) {
-            newRoot.appendSibling(new ChatComponentText(rootText));
+            newChildren.add(new ChatComponentText(rootText));
         }
 
         for (IChatComponent sibling : root.getSiblings()) {
@@ -83,16 +83,23 @@ public final class ChatNameLinker {
                 segments = splitTextNode(text, sibling.getChatStyle(), candidateNames, budget);
             }
             if (segments != null) {
-                for (IChatComponent segment : segments) {
-                    newRoot.appendSibling(segment);
-                }
+                newChildren.addAll(segments);
                 changed = true;
             } else {
-                newRoot.appendSibling(sibling);
+                newChildren.add(sibling);
             }
         }
 
-        return changed ? newRoot : null;
+        if (!changed) {
+            return null;
+        }
+
+        ChatComponentText newRoot = new ChatComponentText("");
+        newRoot.setChatStyle(root.getChatStyle().createShallowCopy());
+        for (IChatComponent child : newChildren) {
+            newRoot.appendSibling(child);
+        }
+        return newRoot;
     }
 
     /** True when any node in the component tree carries a click event. */
@@ -240,7 +247,9 @@ public final class ChatNameLinker {
         while (i >= 2 && raw.charAt(i - 2) == '§') {
             i -= 2;
         }
-        return i == 0 || !isWordChar(raw.charAt(i - 1));
+        // A position directly after '§' is the code character of a formatting
+        // pair (e.g. the 'a' of "§aWildPig") and can never start a real name.
+        return i == 0 || (raw.charAt(i - 1) != '§' && !isWordChar(raw.charAt(i - 1)));
     }
 
     private static boolean isBoundaryAfter(String raw, int end) {

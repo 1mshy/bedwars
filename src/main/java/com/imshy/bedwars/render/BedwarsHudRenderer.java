@@ -558,27 +558,12 @@ public class BedwarsHudRenderer {
             return new int[]{(int) Math.round(rawX / scale), (int) Math.round(rawY / scale)};
         }
 
+        // Delegate to the unit-tested helper so the editor proxy and the live
+        // panel can never drift apart.
         int screenWidth = (int) (rawScreenWidth / scale);
         int screenHeight = (int) (rawScreenHeight / scale);
-        String position = ModConfig.getHudPosition();
-        int margin = 4;
-        int x, y;
-
-        if ("TOP_RIGHT".equals(position)) {
-            x = screenWidth - panelWidth - margin;
-            y = margin;
-        } else if ("BOTTOM_LEFT".equals(position)) {
-            x = margin;
-            y = screenHeight - panelHeight - margin;
-        } else if ("BOTTOM_RIGHT".equals(position)) {
-            x = screenWidth - panelWidth - margin;
-            y = screenHeight - panelHeight - margin;
-        } else {
-            x = margin;
-            y = margin;
-        }
-
-        return new int[]{x, y};
+        return HudAnchorMath.legacyCornerOrigin(ModConfig.getHudPosition(),
+                screenWidth, screenHeight, panelWidth, panelHeight, 4, 4);
     }
 
     private boolean addChatDetectedSection(List<HudLine> lines, Minecraft mc,

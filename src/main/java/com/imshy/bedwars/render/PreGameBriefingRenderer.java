@@ -58,8 +58,9 @@ public class PreGameBriefingRenderer {
             originY = HudAnchorMath.computeY(ModConfig.getPreGameBriefingAnchorY(),
                     screenHeight, height, ModConfig.getPreGameBriefingAnchorOffsetY());
         } else {
-            originX = (screenWidth - width) / 2;
-            originY = Math.max(20, (screenHeight - height) / 4);
+            int[] origin = HudAnchorMath.legacyCardOrigin(screenWidth, screenHeight, width, height, 4);
+            originX = origin[0];
+            originY = origin[1];
         }
 
         long age = briefing.getAgeMs();
