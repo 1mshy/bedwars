@@ -60,7 +60,7 @@ public class MatchSummaryRenderer {
             originY = HudAnchorMath.computeY(ModConfig.getMatchSummaryAnchorY(),
                     screenHeight, height, ModConfig.getMatchSummaryAnchorOffsetY());
         } else {
-            int[] origin = HudAnchorMath.legacyCardOrigin(screenWidth, screenHeight, width, height, 3);
+            int[] origin = HudAnchorMath.legacyLeftCardOrigin(screenHeight, height, 3, 4);
             originX = origin[0];
             originY = origin[1];
         }

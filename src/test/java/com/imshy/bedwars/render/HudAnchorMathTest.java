@@ -198,6 +198,18 @@ public class HudAnchorMathTest {
     }
 
     @Test
+    public void leftCardOriginPinsToLeftMarginWithSameVerticalMath() {
+        // Match-summary default: left edge instead of horizontally centered.
+        int[] summary = HudAnchorMath.legacyLeftCardOrigin(SCREEN_H, ELEM_H, 3, 4);
+        assertEquals(4, summary[0]);
+        assertEquals((SCREEN_H - ELEM_H) / 3, summary[1]);
+
+        // Same 20px floor as the centered variant.
+        int[] floored = HudAnchorMath.legacyLeftCardOrigin(100, 90, 3, 4);
+        assertEquals(20, floored[1]);
+    }
+
+    @Test
     public void customDefaultAnchorsReproduceLegacyCorners() {
         // hud defaults LEFT/TOP +4/+4 == hudPosition TOP_LEFT with margin 4.
         int[] legacyHud = HudAnchorMath.legacyCornerOrigin("TOP_LEFT", SCREEN_W, SCREEN_H, ELEM_W, ELEM_H, 4, 4);

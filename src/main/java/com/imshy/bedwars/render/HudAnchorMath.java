@@ -131,15 +131,26 @@ public final class HudAnchorMath {
     }
 
     /**
-     * Legacy centered-card origin, replicating MatchSummaryRenderer (yDivisor 3)
-     * and PreGameBriefingRenderer (yDivisor 4): horizontally centered, upper
-     * portion of the screen with a 20px floor.
+     * Legacy centered-card origin, replicating PreGameBriefingRenderer
+     * (yDivisor 4): horizontally centered, upper portion of the screen with a
+     * 20px floor.
      */
     public static int[] legacyCardOrigin(int screenWidth, int screenHeight,
                                          int width, int height, int yDivisor) {
         int x = (screenWidth - width) / 2;
         int y = Math.max(20, (screenHeight - height) / yDivisor);
         return new int[]{x, y};
+    }
+
+    /**
+     * Default origin for the match-summary card: pinned to the LEFT edge with
+     * a small margin (it used to be centered, which sat over the action), same
+     * upper-third vertical placement and 20px floor as {@link #legacyCardOrigin}.
+     */
+    public static int[] legacyLeftCardOrigin(int screenHeight, int height,
+                                             int yDivisor, int marginX) {
+        int y = Math.max(20, (screenHeight - height) / yDivisor);
+        return new int[]{marginX, y};
     }
 
     /** Clamp helper shared by drag logic. */

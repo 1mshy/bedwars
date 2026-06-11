@@ -324,7 +324,7 @@ public class GuiHudEditor extends GuiScreen {
                 return new int[]{(int) Math.round(o[0] * scale), (int) Math.round(o[1] * scale)};
             }
             case ELEMENT_MATCH_SUMMARY:
-                return HudAnchorMath.legacyCardOrigin(this.width, this.height, h.width, h.height, 3);
+                return HudAnchorMath.legacyLeftCardOrigin(this.height, h.height, 3, 4);
             default:
                 return HudAnchorMath.legacyCardOrigin(this.width, this.height, h.width, h.height, 4);
         }

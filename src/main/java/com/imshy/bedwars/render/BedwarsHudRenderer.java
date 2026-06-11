@@ -572,7 +572,13 @@ public class BedwarsHudRenderer {
             return false;
         }
 
-        boolean headerAdded = false;
+        // Bucket entries by team colour so teammates render adjacent in-game
+        // (all greens together) instead of chat-detection order. Buckets keep
+        // first-seen order; entries with no resolvable team (white) go last.
+        // Pre-game everyone is unresolved, so the lobby list is unchanged.
+        String unknownColor = EnumChatFormatting.WHITE.toString();
+        java.util.LinkedHashMap<String, List<HudLine>> grouped =
+                new java.util.LinkedHashMap<String, List<HudLine>>();
         synchronized (chatDetectedPlayers) {
             for (ChatDetectedPlayer cdp : chatDetectedPlayers) {
                 BedwarsStats stats = cdp.stats;
@@ -584,7 +590,7 @@ public class BedwarsHudRenderer {
                 String threatColor = stats.getThreatColor();
 
                 ResourceLocation skin = null;
-                String teamColor = EnumChatFormatting.WHITE.toString();
+                String teamColor = unknownColor;
                 if (mc.theWorld != null) {
                     for (EntityPlayer player : mc.theWorld.playerEntities) {
                         if (player.getName().equals(cdp.name) && player instanceof AbstractClientPlayer) {
@@ -593,11 +599,6 @@ public class BedwarsHudRenderer {
                             break;
                         }
                     }
-                }
-
-                if (!headerAdded) {
-                    lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "DETECTED PLAYERS"));
-                    headerAdded = true;
                 }
 
                 StringBuilder lineBuilder = new StringBuilder();
@@ -615,10 +616,28 @@ public class BedwarsHudRenderer {
                                .append(EnumChatFormatting.GRAY).append(" ").append(stats.getRecentWindowLabel());
                 }
 
-                lines.add(HudLine.playerLine(lineBuilder.toString(), skin));
+                List<HudLine> bucket = grouped.get(teamColor);
+                if (bucket == null) {
+                    bucket = new ArrayList<HudLine>();
+                    grouped.put(teamColor, bucket);
+                }
+                bucket.add(HudLine.playerLine(lineBuilder.toString(), skin));
             }
         }
-        return headerAdded;
+
+        if (grouped.isEmpty()) {
+            return false;
+        }
+
+        lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "DETECTED PLAYERS"));
+        List<HudLine> unresolved = grouped.remove(unknownColor);
+        for (List<HudLine> bucket : grouped.values()) {
+            lines.addAll(bucket);
+        }
+        if (unresolved != null) {
+            lines.addAll(unresolved);
+        }
+        return true;
     }
 
     private static class ThreatPlayerEntry {
