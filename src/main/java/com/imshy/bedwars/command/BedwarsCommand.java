@@ -6,6 +6,7 @@ import com.imshy.bedwars.ModConfig;
 import com.imshy.bedwars.PlayerDatabase;
 import com.imshy.bedwars.runtime.BedwarsRuntime;
 import com.imshy.bedwars.runtime.GamePhase;
+import com.imshy.bedwars.runtime.MapLearningService;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.command.CommandBase;
@@ -32,7 +33,7 @@ public class BedwarsCommand extends CommandBase {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/bw <setkey|lookup|all|info|autoplay|afk|rejoin|blacklist|history|status|clear|reset|disable|enable|pearlpreview|nametags> [args]";
+        return "/bw <setkey|lookup|all|info|autoplay|afk|rejoin|blacklist|history|status|clear|reset|disable|enable|pearlpreview|nametags|maps|edithud> [args]";
     }
 
     @Override
@@ -60,6 +61,8 @@ public class BedwarsCommand extends CommandBase {
             sendMessage(sender, "/bw enable - Re-enable all automatic features");
             sendMessage(sender, "/bw pearlpreview - Toggle ender pearl trajectory preview");
             sendMessage(sender, "/bw nametags - Toggle in-world nametags above player heads");
+            sendMessage(sender, "/bw maps - List map layouts learned from played games");
+            sendMessage(sender, "/bw edithud - Open the drag-and-drop HUD layout editor");
             sendMessage(sender, EnumChatFormatting.GRAY + "Tactical features (toggle in config GUI):");
             sendMessage(sender, EnumChatFormatting.GRAY + "  pre-game briefing, generator countdown, enemy loadout row,");
             sendMessage(sender, EnumChatFormatting.GRAY + "  final-kill feed, ender-pearl trajectory overlay");
@@ -135,7 +138,7 @@ public class BedwarsCommand extends CommandBase {
                         }
                     });
                 }
-            });
+            }, HypixelAPI.FetchPriority.EXPLICIT);
 
         } else if (subCommand.equals("all")) {
             if (!HypixelAPI.hasApiKey()) {
@@ -190,7 +193,7 @@ public class BedwarsCommand extends CommandBase {
                             }
                         });
                     }
-                });
+                }, HypixelAPI.FetchPriority.EXPLICIT);
             }
 
             if (count == 0) {
@@ -280,6 +283,17 @@ public class BedwarsCommand extends CommandBase {
                         EnumChatFormatting.RED + "Nametags disabled.");
             }
 
+        } else if (subCommand.equals("maps")) {
+            handleMapsCommand(sender);
+
+        } else if (subCommand.equals("edithud")) {
+            // Vanilla closes the chat screen right after command execution
+            // (and addScheduledTask runs synchronously on the client thread),
+            // which would kill a screen opened here — defer to the tick loop.
+            runtime.requestHudEditorOpen();
+            sendMessage(sender, EnumChatFormatting.GOLD + "[BW] " +
+                    EnumChatFormatting.GREEN + "Opening HUD editor...");
+
         } else {
             sendMessage(sender, EnumChatFormatting.RED + "Unknown command. Use /bw for help.");
         }
@@ -291,7 +305,8 @@ public class BedwarsCommand extends CommandBase {
         if (args.length == 1) {
             return getListOfStringsMatchingLastWord(args, "setkey", "lookup", "all", "info", "autoplay",
                     "afk", "rejoin", "blacklist", "history",
-                    "status", "clear", "reset", "disable", "enable", "pearlpreview", "nametags");
+                    "status", "clear", "reset", "disable", "enable", "pearlpreview", "nametags", "maps",
+                    "edithud");
         }
 
         if (args.length == 2) {
@@ -587,6 +602,27 @@ public class BedwarsCommand extends CommandBase {
 
         if (mc.thePlayer != null && playCommand != null) {
             mc.thePlayer.sendChatMessage(playCommand);
+        }
+    }
+
+    private void handleMapsCommand(ICommandSender sender) {
+        List<MapLearningService.LearnedMapSummary> maps = runtime.getMapLearningService().getLearnedMaps();
+        if (maps.isEmpty()) {
+            sendMessage(sender, EnumChatFormatting.YELLOW
+                    + "No learned maps yet. Finish a game with map learning enabled.");
+            return;
+        }
+
+        sendMessage(sender, EnumChatFormatting.GOLD + "=== Learned Maps (" + maps.size() + ") ===");
+        long now = System.currentTimeMillis();
+        for (MapLearningService.LearnedMapSummary map : maps) {
+            long daysAgo = (now - map.lastSeenEpochMs) / (1000L * 60 * 60 * 24);
+            String lastSeen = daysAgo == 0 ? "today" : daysAgo + "d ago";
+            sendMessage(sender,
+                    EnumChatFormatting.AQUA + map.name +
+                            EnumChatFormatting.GRAY + " - " + map.observationCount + " games | " +
+                            EnumChatFormatting.YELLOW + map.consolidatedGenerators + " confirmed gens" +
+                            EnumChatFormatting.GRAY + " | last seen " + lastSeen);
         }
     }
 

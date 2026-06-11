@@ -134,6 +134,47 @@ public class ModConfig {
     // In-world nametag master toggle (threat label, recent-FKDR addon, loadout row, enemy-tracking label)
     private static boolean nameTagsEnabled = true;
 
+    // Tab-list stat suffix (threat-colored stars + FKDR appended to tab display names)
+    private static boolean tabStatsEnabled = true;
+
+    // Clickable chat name links (click a player name in chat to run /bw lookup)
+    private static boolean clickableChatEnabled = true;
+
+    // Killfeed settings (standalone HUD element listing recent kills/deaths)
+    private static boolean killfeedEnabled = true;
+    private static String killfeedAnchor = "TOP_RIGHT";
+    private static int killfeedOffsetX = 4;
+    private static int killfeedOffsetY = 4;
+
+    // HUD editor (/bw edithud): anchor + offset position overrides. While the
+    // per-element custom flag is false the legacy position logic (hudPosition
+    // corner, killfeedAnchor corner, centered cards) applies unchanged.
+    // Offsets are signed pixels in unscaled ScaledResolution space, measured
+    // from the screen anchor point to the same corner/edge of the element.
+    private static boolean hudCustomPosition = false;
+    private static String hudAnchorX = "LEFT";
+    private static String hudAnchorY = "TOP";
+    private static int hudAnchorOffsetX = 4;
+    private static int hudAnchorOffsetY = 4;
+    private static boolean killfeedCustomPosition = false;
+    private static String killfeedAnchorX = "RIGHT";
+    private static String killfeedAnchorY = "TOP";
+    private static int killfeedAnchorOffsetX = -4;
+    private static int killfeedAnchorOffsetY = 4;
+    private static boolean matchSummaryCustomPosition = false;
+    private static String matchSummaryAnchorX = "CENTER";
+    private static String matchSummaryAnchorY = "CENTER";
+    private static int matchSummaryAnchorOffsetX = 0;
+    private static int matchSummaryAnchorOffsetY = 0;
+    private static boolean preGameBriefingCustomPosition = false;
+    private static String preGameBriefingAnchorX = "CENTER";
+    private static String preGameBriefingAnchorY = "CENTER";
+    private static int preGameBriefingAnchorOffsetX = 0;
+    private static int preGameBriefingAnchorOffsetY = 0;
+
+    // Self-building map registry (learn generator/bed layouts from played games)
+    private static boolean mapLearningEnabled = true;
+
     // Anti-cheat / hacker detection settings
     private static boolean antiCheatEnabled = true;
     private static boolean antiCheatAutoBlockEnabled = true;
@@ -818,6 +859,210 @@ public class ModConfig {
                     "Master toggle for in-world stat labels rendered above player heads (threat level, FKDR, loadout, enemy tracking).");
             nameTagsEnabled = nameTagsEnabledProp.getBoolean();
 
+            Property tabStatsEnabledProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "tabStatsEnabled",
+                    true,
+                    "Append threat-colored stars + FKDR to player names in the tab list (uses cached stats only, never fetches).");
+            tabStatsEnabled = tabStatsEnabledProp.getBoolean();
+
+            Property clickableChatProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "clickableChatEnabled",
+                    true,
+                    "Rewrite player names in chat into clickable links that run /bw lookup on click.");
+            clickableChatEnabled = clickableChatProp.getBoolean();
+
+            Property killfeedEnabledProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "killfeedEnabled",
+                    true,
+                    "Show a compact killfeed HUD element listing recent kills and deaths (threat-colored killers).");
+            killfeedEnabled = killfeedEnabledProp.getBoolean();
+
+            Property killfeedAnchorProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "killfeedAnchor",
+                    "TOP_RIGHT",
+                    "Screen corner the killfeed is anchored to: TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, or BOTTOM_RIGHT.");
+            killfeedAnchor = killfeedAnchorProp.getString();
+            if (!killfeedAnchor.equals("TOP_LEFT") && !killfeedAnchor.equals("TOP_RIGHT")
+                    && !killfeedAnchor.equals("BOTTOM_LEFT") && !killfeedAnchor.equals("BOTTOM_RIGHT")) {
+                killfeedAnchor = "TOP_RIGHT";
+            }
+
+            Property killfeedOffsetXProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "killfeedOffsetX",
+                    4,
+                    "Horizontal offset (scaled pixels) of the killfeed from its anchored screen edge.",
+                    0, 4096);
+            killfeedOffsetX = killfeedOffsetXProp.getInt();
+
+            Property killfeedOffsetYProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "killfeedOffsetY",
+                    4,
+                    "Vertical offset (scaled pixels) of the killfeed from its anchored screen edge.",
+                    0, 4096);
+            killfeedOffsetY = killfeedOffsetYProp.getInt();
+
+            // ─── HUD editor layout overrides (/bw edithud) ───
+            Property hudCustomPositionProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "hudCustomPosition",
+                    false,
+                    "Use the HUD editor anchor+offset position for the main stats panel instead of hudPosition.");
+            hudCustomPosition = hudCustomPositionProp.getBoolean();
+
+            Property hudAnchorXProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "hudAnchorX",
+                    "LEFT",
+                    "Horizontal anchor for the main stats panel: LEFT, CENTER, or RIGHT.");
+            hudAnchorX = clampAnchorX(hudAnchorXProp.getString(), "LEFT");
+
+            Property hudAnchorYProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "hudAnchorY",
+                    "TOP",
+                    "Vertical anchor for the main stats panel: TOP, CENTER, or BOTTOM.");
+            hudAnchorY = clampAnchorY(hudAnchorYProp.getString(), "TOP");
+
+            Property hudAnchorOffsetXProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "hudAnchorOffsetX",
+                    4,
+                    "Signed horizontal offset (unscaled pixels) of the main stats panel from its anchor.",
+                    -4096, 4096);
+            hudAnchorOffsetX = hudAnchorOffsetXProp.getInt();
+
+            Property hudAnchorOffsetYProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "hudAnchorOffsetY",
+                    4,
+                    "Signed vertical offset (unscaled pixels) of the main stats panel from its anchor.",
+                    -4096, 4096);
+            hudAnchorOffsetY = hudAnchorOffsetYProp.getInt();
+
+            Property killfeedCustomPositionProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "killfeedCustomPosition",
+                    false,
+                    "Use the HUD editor anchor+offset position for the killfeed instead of killfeedAnchor.");
+            killfeedCustomPosition = killfeedCustomPositionProp.getBoolean();
+
+            Property killfeedAnchorXProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "killfeedAnchorX",
+                    "RIGHT",
+                    "Horizontal anchor for the killfeed: LEFT, CENTER, or RIGHT.");
+            killfeedAnchorX = clampAnchorX(killfeedAnchorXProp.getString(), "RIGHT");
+
+            Property killfeedAnchorYProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "killfeedAnchorY",
+                    "TOP",
+                    "Vertical anchor for the killfeed: TOP, CENTER, or BOTTOM.");
+            killfeedAnchorY = clampAnchorY(killfeedAnchorYProp.getString(), "TOP");
+
+            Property killfeedAnchorOffsetXProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "killfeedAnchorOffsetX",
+                    -4,
+                    "Signed horizontal offset (unscaled pixels) of the killfeed from its anchor.",
+                    -4096, 4096);
+            killfeedAnchorOffsetX = killfeedAnchorOffsetXProp.getInt();
+
+            Property killfeedAnchorOffsetYProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "killfeedAnchorOffsetY",
+                    4,
+                    "Signed vertical offset (unscaled pixels) of the killfeed from its anchor.",
+                    -4096, 4096);
+            killfeedAnchorOffsetY = killfeedAnchorOffsetYProp.getInt();
+
+            Property matchSummaryCustomPositionProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "matchSummaryCustomPosition",
+                    false,
+                    "Use the HUD editor anchor+offset position for the match summary card instead of the centered default.");
+            matchSummaryCustomPosition = matchSummaryCustomPositionProp.getBoolean();
+
+            Property matchSummaryAnchorXProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "matchSummaryAnchorX",
+                    "CENTER",
+                    "Horizontal anchor for the match summary card: LEFT, CENTER, or RIGHT.");
+            matchSummaryAnchorX = clampAnchorX(matchSummaryAnchorXProp.getString(), "CENTER");
+
+            Property matchSummaryAnchorYProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "matchSummaryAnchorY",
+                    "CENTER",
+                    "Vertical anchor for the match summary card: TOP, CENTER, or BOTTOM.");
+            matchSummaryAnchorY = clampAnchorY(matchSummaryAnchorYProp.getString(), "CENTER");
+
+            Property matchSummaryAnchorOffsetXProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "matchSummaryAnchorOffsetX",
+                    0,
+                    "Signed horizontal offset (unscaled pixels) of the match summary card from its anchor.",
+                    -4096, 4096);
+            matchSummaryAnchorOffsetX = matchSummaryAnchorOffsetXProp.getInt();
+
+            Property matchSummaryAnchorOffsetYProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "matchSummaryAnchorOffsetY",
+                    0,
+                    "Signed vertical offset (unscaled pixels) of the match summary card from its anchor.",
+                    -4096, 4096);
+            matchSummaryAnchorOffsetY = matchSummaryAnchorOffsetYProp.getInt();
+
+            Property preGameBriefingCustomPositionProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "preGameBriefingCustomPosition",
+                    false,
+                    "Use the HUD editor anchor+offset position for the pre-game briefing card instead of the centered default.");
+            preGameBriefingCustomPosition = preGameBriefingCustomPositionProp.getBoolean();
+
+            Property preGameBriefingAnchorXProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "preGameBriefingAnchorX",
+                    "CENTER",
+                    "Horizontal anchor for the pre-game briefing card: LEFT, CENTER, or RIGHT.");
+            preGameBriefingAnchorX = clampAnchorX(preGameBriefingAnchorXProp.getString(), "CENTER");
+
+            Property preGameBriefingAnchorYProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "preGameBriefingAnchorY",
+                    "CENTER",
+                    "Vertical anchor for the pre-game briefing card: TOP, CENTER, or BOTTOM.");
+            preGameBriefingAnchorY = clampAnchorY(preGameBriefingAnchorYProp.getString(), "CENTER");
+
+            Property preGameBriefingAnchorOffsetXProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "preGameBriefingAnchorOffsetX",
+                    0,
+                    "Signed horizontal offset (unscaled pixels) of the pre-game briefing card from its anchor.",
+                    -4096, 4096);
+            preGameBriefingAnchorOffsetX = preGameBriefingAnchorOffsetXProp.getInt();
+
+            Property preGameBriefingAnchorOffsetYProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "preGameBriefingAnchorOffsetY",
+                    0,
+                    "Signed vertical offset (unscaled pixels) of the pre-game briefing card from its anchor.",
+                    -4096, 4096);
+            preGameBriefingAnchorOffsetY = preGameBriefingAnchorOffsetYProp.getInt();
+
+            Property mapLearningProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "mapLearningEnabled",
+                    true,
+                    "Learn map layouts (generator and bed positions) from played games and persist them to learnedmaps.json (/bw maps).");
+            mapLearningEnabled = mapLearningProp.getBoolean();
+
             // Anti-cheat / hacker detection
             Property antiCheatEnabledProp = config.get(
                     CATEGORY_NEW_FEATURES,
@@ -876,6 +1121,22 @@ public class ModConfig {
                 config.save();
             }
         }
+    }
+
+    /** Clamp a horizontal anchor string to LEFT/CENTER/RIGHT (mirrors the hudPosition clamp). */
+    private static String clampAnchorX(String value, String fallback) {
+        if ("LEFT".equals(value) || "CENTER".equals(value) || "RIGHT".equals(value)) {
+            return value;
+        }
+        return fallback;
+    }
+
+    /** Clamp a vertical anchor string to TOP/CENTER/BOTTOM (mirrors the hudPosition clamp). */
+    private static String clampAnchorY(String value, String fallback) {
+        if ("TOP".equals(value) || "CENTER".equals(value) || "BOTTOM".equals(value)) {
+            return value;
+        }
+        return fallback;
     }
 
     /**
@@ -1246,6 +1507,223 @@ public class ModConfig {
     public static void setNameTagsEnabled(boolean enabled) {
         nameTagsEnabled = enabled;
         config.get(CATEGORY_NEW_FEATURES, "nameTagsEnabled", true).set(enabled);
+        config.save();
+    }
+
+    public static boolean isTabStatsEnabled() {
+        return tabStatsEnabled;
+    }
+
+    public static void setTabStatsEnabled(boolean enabled) {
+        tabStatsEnabled = enabled;
+        config.get(CATEGORY_NEW_FEATURES, "tabStatsEnabled", true).set(enabled);
+        config.save();
+    }
+
+    public static boolean isClickableChatEnabled() {
+        return clickableChatEnabled;
+    }
+
+    public static boolean isKillfeedEnabled() {
+        return killfeedEnabled;
+    }
+
+    public static String getKillfeedAnchor() {
+        return killfeedAnchor;
+    }
+
+    public static void setKillfeedAnchor(String anchor) {
+        killfeedAnchor = anchor;
+        config.get(CATEGORY_NEW_FEATURES, "killfeedAnchor", "TOP_RIGHT").set(anchor);
+        config.save();
+    }
+
+    public static int getKillfeedOffsetX() {
+        return killfeedOffsetX;
+    }
+
+    public static void setKillfeedOffsetX(int offsetX) {
+        killfeedOffsetX = offsetX;
+        config.get(CATEGORY_NEW_FEATURES, "killfeedOffsetX", 4).set(offsetX);
+        config.save();
+    }
+
+    public static int getKillfeedOffsetY() {
+        return killfeedOffsetY;
+    }
+
+    public static void setKillfeedOffsetY(int offsetY) {
+        killfeedOffsetY = offsetY;
+        config.get(CATEGORY_NEW_FEATURES, "killfeedOffsetY", 4).set(offsetY);
+        config.save();
+    }
+
+    // ─── HUD editor layout (anchor + offset overrides) ───
+
+    public static boolean isHudCustomPosition() {
+        return hudCustomPosition;
+    }
+
+    public static String getHudAnchorX() {
+        return hudAnchorX;
+    }
+
+    public static String getHudAnchorY() {
+        return hudAnchorY;
+    }
+
+    public static int getHudAnchorOffsetX() {
+        return hudAnchorOffsetX;
+    }
+
+    public static int getHudAnchorOffsetY() {
+        return hudAnchorOffsetY;
+    }
+
+    public static boolean isKillfeedCustomPosition() {
+        return killfeedCustomPosition;
+    }
+
+    public static String getKillfeedAnchorX() {
+        return killfeedAnchorX;
+    }
+
+    public static String getKillfeedAnchorY() {
+        return killfeedAnchorY;
+    }
+
+    public static int getKillfeedAnchorOffsetX() {
+        return killfeedAnchorOffsetX;
+    }
+
+    public static int getKillfeedAnchorOffsetY() {
+        return killfeedAnchorOffsetY;
+    }
+
+    public static boolean isMatchSummaryCustomPosition() {
+        return matchSummaryCustomPosition;
+    }
+
+    public static String getMatchSummaryAnchorX() {
+        return matchSummaryAnchorX;
+    }
+
+    public static String getMatchSummaryAnchorY() {
+        return matchSummaryAnchorY;
+    }
+
+    public static int getMatchSummaryAnchorOffsetX() {
+        return matchSummaryAnchorOffsetX;
+    }
+
+    public static int getMatchSummaryAnchorOffsetY() {
+        return matchSummaryAnchorOffsetY;
+    }
+
+    public static boolean isPreGameBriefingCustomPosition() {
+        return preGameBriefingCustomPosition;
+    }
+
+    public static String getPreGameBriefingAnchorX() {
+        return preGameBriefingAnchorX;
+    }
+
+    public static String getPreGameBriefingAnchorY() {
+        return preGameBriefingAnchorY;
+    }
+
+    public static int getPreGameBriefingAnchorOffsetX() {
+        return preGameBriefingAnchorOffsetX;
+    }
+
+    public static int getPreGameBriefingAnchorOffsetY() {
+        return preGameBriefingAnchorOffsetY;
+    }
+
+    /**
+     * In-memory only: live-preview update from the HUD editor while dragging.
+     * Nothing is written to disk until {@link #persistHudEditorLayout()}.
+     */
+    public static void applyHudLayoutLive(boolean custom, String anchorX, String anchorY,
+                                          int offsetX, int offsetY) {
+        hudCustomPosition = custom;
+        hudAnchorX = clampAnchorX(anchorX, "LEFT");
+        hudAnchorY = clampAnchorY(anchorY, "TOP");
+        hudAnchorOffsetX = offsetX;
+        hudAnchorOffsetY = offsetY;
+    }
+
+    /** In-memory only: live-preview update from the HUD editor while dragging. */
+    public static void applyKillfeedLayoutLive(boolean custom, String anchorX, String anchorY,
+                                               int offsetX, int offsetY) {
+        killfeedCustomPosition = custom;
+        killfeedAnchorX = clampAnchorX(anchorX, "RIGHT");
+        killfeedAnchorY = clampAnchorY(anchorY, "TOP");
+        killfeedAnchorOffsetX = offsetX;
+        killfeedAnchorOffsetY = offsetY;
+    }
+
+    /** In-memory only: live-preview update from the HUD editor while dragging. */
+    public static void applyMatchSummaryLayoutLive(boolean custom, String anchorX, String anchorY,
+                                                   int offsetX, int offsetY) {
+        matchSummaryCustomPosition = custom;
+        matchSummaryAnchorX = clampAnchorX(anchorX, "CENTER");
+        matchSummaryAnchorY = clampAnchorY(anchorY, "CENTER");
+        matchSummaryAnchorOffsetX = offsetX;
+        matchSummaryAnchorOffsetY = offsetY;
+    }
+
+    /** In-memory only: live-preview update from the HUD editor while dragging. */
+    public static void applyPreGameBriefingLayoutLive(boolean custom, String anchorX, String anchorY,
+                                                      int offsetX, int offsetY) {
+        preGameBriefingCustomPosition = custom;
+        preGameBriefingAnchorX = clampAnchorX(anchorX, "CENTER");
+        preGameBriefingAnchorY = clampAnchorY(anchorY, "CENTER");
+        preGameBriefingAnchorOffsetX = offsetX;
+        preGameBriefingAnchorOffsetY = offsetY;
+    }
+
+    /** In-memory only: live hudScale preview from the HUD editor scroll wheel (0.5-2.0 clamp). */
+    public static void applyHudScaleLive(double scale) {
+        hudScale = Math.max(0.5, Math.min(2.0, scale));
+    }
+
+    /**
+     * Persist every HUD-editor-managed property in one pass (Property.set +
+     * a single config.save()), called when the editor screen closes.
+     */
+    public static void persistHudEditorLayout() {
+        config.get(Configuration.CATEGORY_GENERAL, "hudScale", 1.0).set(hudScale);
+        config.get(CATEGORY_NEW_FEATURES, "hudCustomPosition", false).set(hudCustomPosition);
+        config.get(CATEGORY_NEW_FEATURES, "hudAnchorX", "LEFT").set(hudAnchorX);
+        config.get(CATEGORY_NEW_FEATURES, "hudAnchorY", "TOP").set(hudAnchorY);
+        config.get(CATEGORY_NEW_FEATURES, "hudAnchorOffsetX", 4).set(hudAnchorOffsetX);
+        config.get(CATEGORY_NEW_FEATURES, "hudAnchorOffsetY", 4).set(hudAnchorOffsetY);
+        config.get(CATEGORY_NEW_FEATURES, "killfeedCustomPosition", false).set(killfeedCustomPosition);
+        config.get(CATEGORY_NEW_FEATURES, "killfeedAnchorX", "RIGHT").set(killfeedAnchorX);
+        config.get(CATEGORY_NEW_FEATURES, "killfeedAnchorY", "TOP").set(killfeedAnchorY);
+        config.get(CATEGORY_NEW_FEATURES, "killfeedAnchorOffsetX", -4).set(killfeedAnchorOffsetX);
+        config.get(CATEGORY_NEW_FEATURES, "killfeedAnchorOffsetY", 4).set(killfeedAnchorOffsetY);
+        config.get(CATEGORY_NEW_FEATURES, "matchSummaryCustomPosition", false).set(matchSummaryCustomPosition);
+        config.get(CATEGORY_NEW_FEATURES, "matchSummaryAnchorX", "CENTER").set(matchSummaryAnchorX);
+        config.get(CATEGORY_NEW_FEATURES, "matchSummaryAnchorY", "CENTER").set(matchSummaryAnchorY);
+        config.get(CATEGORY_NEW_FEATURES, "matchSummaryAnchorOffsetX", 0).set(matchSummaryAnchorOffsetX);
+        config.get(CATEGORY_NEW_FEATURES, "matchSummaryAnchorOffsetY", 0).set(matchSummaryAnchorOffsetY);
+        config.get(CATEGORY_NEW_FEATURES, "preGameBriefingCustomPosition", false).set(preGameBriefingCustomPosition);
+        config.get(CATEGORY_NEW_FEATURES, "preGameBriefingAnchorX", "CENTER").set(preGameBriefingAnchorX);
+        config.get(CATEGORY_NEW_FEATURES, "preGameBriefingAnchorY", "CENTER").set(preGameBriefingAnchorY);
+        config.get(CATEGORY_NEW_FEATURES, "preGameBriefingAnchorOffsetX", 0).set(preGameBriefingAnchorOffsetX);
+        config.get(CATEGORY_NEW_FEATURES, "preGameBriefingAnchorOffsetY", 0).set(preGameBriefingAnchorOffsetY);
+        config.save();
+    }
+
+    public static boolean isMapLearningEnabled() {
+        return mapLearningEnabled;
+    }
+
+    public static void setMapLearningEnabled(boolean enabled) {
+        mapLearningEnabled = enabled;
+        config.get(CATEGORY_NEW_FEATURES, "mapLearningEnabled", true).set(enabled);
         config.save();
     }
 

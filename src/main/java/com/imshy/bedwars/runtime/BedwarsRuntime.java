@@ -8,8 +8,10 @@ import com.imshy.bedwars.HypixelAPI;
 import com.imshy.bedwars.HypixelMessages;
 import com.imshy.bedwars.ModConfig;
 import com.imshy.bedwars.PlayerDatabase;
+import com.imshy.bedwars.gui.GuiHudEditor;
 import com.imshy.bedwars.render.BedwarsHudRenderer;
 import com.imshy.bedwars.render.BedwarsOverlayRenderer;
+import com.imshy.bedwars.render.KillFeedRenderer;
 import com.imshy.bedwars.render.LastSeenArrowRenderer;
 import com.imshy.bedwars.render.MatchSummaryRenderer;
 import com.imshy.bedwars.render.PreGameBriefingRenderer;
@@ -32,8 +34,10 @@ import net.minecraftforge.fml.common.gameevent.TickEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -49,6 +53,7 @@ public class BedwarsRuntime {
             .compile("(?:\\[[A-Za-z0-9+]+\\] )?([A-Za-z0-9_]{1,16})");
     private static final Pattern DEATH_MESSAGE_PATTERN = Pattern
             .compile("^([A-Za-z0-9_]{1,16}) (?:was |died|fell |disconnected|burned |walked |suffocated|drowned)");
+    private static final Pattern VALID_PLAYER_NAME_PATTERN = Pattern.compile("^[A-Za-z0-9_]{1,16}$");
     private static final long PARTY_LIST_TIMEOUT_MS = 3000;
     private static final long LOBBY_BAIT_RETRY_DELAY_MS = 4000;
     private static final String[] LOBBY_BAIT_MESSAGES = {
@@ -76,12 +81,25 @@ public class BedwarsRuntime {
     private final ProjectileTrackingService projectileTrackingService;
     private final EnderPearlPredictionService enderPearlPredictionService;
     private final FinalKillLedger finalKillLedger;
+    private final KillFeedTracker killFeedTracker;
     private final AntiCheatService antiCheatService;
+    private final TabStatsInjector tabStatsInjector;
+    private final MapLearningService mapLearningService;
     private final BedwarsOverlayRenderer overlayRenderer;
     private final BedwarsHudRenderer hudRenderer;
+    private final KillFeedRenderer killFeedRenderer;
     private final LastSeenArrowRenderer lastSeenArrowRenderer;
     private final MatchSummaryRenderer matchSummaryRenderer;
     private final PreGameBriefingRenderer preGameBriefingRenderer;
+
+    /**
+     * One-shot countdown set by /bw edithud and consumed in onClientTick.
+     * Vanilla closes the chat GUI right after command execution (and
+     * addScheduledTask runs synchronously on the client thread), so opening
+     * the editor screen from processCommand would be killed immediately; the
+     * tick loop opens it once the chat screen is gone.
+     */
+    private int hudEditorOpenTicks;
 
     public BedwarsRuntime() {
         this.state = new RuntimeState();
@@ -94,9 +112,13 @@ public class BedwarsRuntime {
         this.projectileTrackingService = new ProjectileTrackingService();
         this.enderPearlPredictionService = new EnderPearlPredictionService();
         this.finalKillLedger = new FinalKillLedger();
+        this.killFeedTracker = new KillFeedTracker();
         this.antiCheatService = new AntiCheatService();
+        this.tabStatsInjector = new TabStatsInjector(state);
+        this.mapLearningService = new MapLearningService(state);
         this.overlayRenderer = new BedwarsOverlayRenderer();
         this.hudRenderer = new BedwarsHudRenderer();
+        this.killFeedRenderer = new KillFeedRenderer();
         this.lastSeenArrowRenderer = new LastSeenArrowRenderer();
         this.matchSummaryRenderer = new MatchSummaryRenderer();
         this.preGameBriefingRenderer = new PreGameBriefingRenderer();
@@ -126,13 +148,27 @@ public class BedwarsRuntime {
         lobbyTrackerService.clearRecentJoins();
     }
 
+    public MapLearningService getMapLearningService() {
+        return mapLearningService;
+    }
+
+    /** Request the HUD editor screen; opened on a later tick (give up after ~5s). */
+    public void requestHudEditorOpen() {
+        hudEditorOpenTicks = 100;
+    }
+
     public void resetToBootState() {
+        // Commit any in-flight map observation BEFORE state.reset() wipes
+        // trackedGenerators and lastDetectedMapName.
+        mapLearningService.onMatchEnd(Minecraft.getMinecraft());
         state.reset();
+        tabStatsInjector.restoreAll(Minecraft.getMinecraft());
         matchThreatService.clearBedTrackingState();
         enemyTrackingService.clearAll();
         fireballTrackingService.clearAll();
         projectileTrackingService.clearAll();
         finalKillLedger.clear();
+        killFeedTracker.clear();
         PlayerDatabase.getInstance().clearCurrentGame();
         AudioCueManager.clearCooldowns();
     }
@@ -244,6 +280,8 @@ public class BedwarsRuntime {
         if (message.contains(HypixelMessages.GAME_START)) {
             if (state.gamePhase != GamePhase.IN_GAME) {
                 finalKillLedger.clear();
+                killFeedTracker.clear();
+                mapLearningService.onMatchStart();
                 lobbyTrackerService.activateMatchTracking(mc);
             }
         }
@@ -262,6 +300,9 @@ public class BedwarsRuntime {
 
                 LOGGER.info("WIN detected");
                 captureMatchSummary(MatchSummary.Outcome.WIN);
+                // Final map snapshot while trackedGenerators is still populated —
+                // the next non-IN_GAME tick wipes it.
+                mapLearningService.onMatchEnd(mc);
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.WIN);
                 PlayerDatabase.getInstance().clearCurrentGame();
                 state.gamePhase = GamePhase.IDLE;
@@ -277,6 +318,7 @@ public class BedwarsRuntime {
                 fireballTrackingService.clearAll();
                 projectileTrackingService.clearAll();
                 finalKillLedger.clear();
+                killFeedTracker.clear();
                 return;
             }
 
@@ -285,6 +327,7 @@ public class BedwarsRuntime {
 
                 LOGGER.info("LOSS detected");
                 captureMatchSummary(MatchSummary.Outcome.LOSS);
+                mapLearningService.onMatchEnd(mc);
                 PlayerDatabase db = PlayerDatabase.getInstance();
                 db.recordGameEnd(PlayerDatabase.GameOutcome.LOSS);
 
@@ -310,15 +353,24 @@ public class BedwarsRuntime {
                 fireballTrackingService.clearAll();
                 projectileTrackingService.clearAll();
                 finalKillLedger.clear();
+                killFeedTracker.clear();
                 return;
             }
 
-            // Detect player death messages for enemy tracking
-            if (ModConfig.isEnemyTrackingEnabled()) {
-                Matcher deathMatcher = DEATH_MESSAGE_PATTERN.matcher(message);
-                if (deathMatcher.find()) {
-                    String deadPlayer = deathMatcher.group(1);
+            // Detect player death messages for enemy tracking + killfeed
+            Matcher deathMatcher = DEATH_MESSAGE_PATTERN.matcher(message);
+            if (deathMatcher.find()) {
+                String deadPlayer = deathMatcher.group(1);
+                if (ModConfig.isEnemyTrackingEnabled()) {
                     enemyTrackingService.handleDeathMessage(deadPlayer);
+                }
+                // Victim-only killfeed entry. Final kills are skipped here —
+                // handleFinalKill below records them with the killer attached.
+                if (ModConfig.isKillfeedEnabled()
+                        && !message.contains(HypixelMessages.FINAL_KILL_SUFFIX)
+                        && !deadPlayer.equals(playerName)) {
+                    String teamColor = resolveTeamColorCode(mc, deadPlayer);
+                    killFeedTracker.addEntry(deadPlayer, null, teamColor, System.currentTimeMillis());
                 }
             }
 
@@ -348,6 +400,7 @@ public class BedwarsRuntime {
             if (state.gamePhase == GamePhase.IN_GAME) {
                 state.disconnectedFromGame = false;
                 captureMatchSummary(MatchSummary.Outcome.UNKNOWN);
+                mapLearningService.onMatchEnd(mc);
                 matchThreatService.clearBedTrackingState();
                 PlayerDatabase.getInstance().recordGameEnd(PlayerDatabase.GameOutcome.UNKNOWN);
                 PlayerDatabase.getInstance().clearCurrentGame();
@@ -356,9 +409,94 @@ public class BedwarsRuntime {
                 fireballTrackingService.clearAll();
                 projectileTrackingService.clearAll();
                 finalKillLedger.clear();
+                killFeedTracker.clear();
                 LOGGER.info("Left Bedwars game - unknown outcome");
             }
             state.gamePhase = GamePhase.IDLE;
+        }
+
+        // Clickable name links: purely additive rewrite of the displayed
+        // component, done AFTER all read-only parsing so the handlers above
+        // always saw the original text. Action-bar messages (type 2) cannot
+        // carry click events, so they are skipped.
+        if (ModConfig.isClickableChatEnabled() && event.type != 2) {
+            maybeLinkifyNames(mc, event, message);
+        }
+    }
+
+    /**
+     * Rewrites {@code event.message} so known player names become clickable
+     * "/bw lookup" links (client-registered command — never reaches Hypixel).
+     * Candidates come from data the mod already has: the loaded world's
+     * players, the tab list, chat-detected players, and the name captures of
+     * this very message. The component surgery itself — word-boundary
+     * matching, formatting-code carry, leaving click-event-bearing messages
+     * untouched — lives in {@link ChatNameLinker}.
+     */
+    private void maybeLinkifyNames(Minecraft mc, ClientChatReceivedEvent event, String message) {
+        if (mc == null) {
+            return;
+        }
+        String selfName = mc.thePlayer != null ? mc.thePlayer.getName() : null;
+
+        Set<String> rawCandidates = new HashSet<String>();
+
+        // Captures from this very message — covers players who already left
+        // the world (final-kill victims) or were never nearby.
+        Matcher chatMatcher = CHAT_MESSAGE_PATTERN.matcher(message);
+        if (chatMatcher.matches()) {
+            rawCandidates.add(chatMatcher.group(1));
+        }
+        Matcher deathMatcher = DEATH_MESSAGE_PATTERN.matcher(message);
+        if (deathMatcher.find()) {
+            rawCandidates.add(deathMatcher.group(1));
+        }
+        Matcher finalKillMatcher = HypixelMessages.FINAL_KILL_PATTERN.matcher(message);
+        if (finalKillMatcher.find()) {
+            for (int g = 1; g <= 3; g++) {
+                if (finalKillMatcher.group(g) != null) {
+                    rawCandidates.add(finalKillMatcher.group(g));
+                }
+            }
+        }
+
+        if (mc.theWorld != null) {
+            for (EntityPlayer p : mc.theWorld.playerEntities) {
+                rawCandidates.add(p.getName());
+            }
+        }
+        if (mc.getNetHandler() != null) {
+            for (net.minecraft.client.network.NetworkPlayerInfo info : mc.getNetHandler().getPlayerInfoMap()) {
+                if (info.getGameProfile() != null) {
+                    rawCandidates.add(info.getGameProfile().getName());
+                }
+            }
+        }
+        synchronized (state.chatDetectedPlayers) {
+            for (ChatDetectedPlayer cdp : state.chatDetectedPlayers) {
+                rawCandidates.add(cdp.name);
+            }
+        }
+
+        // Only real-looking names survive (tab-list NPC entries carry color
+        // codes and odd characters), and never the local player's own name.
+        Set<String> candidates = new HashSet<String>();
+        for (String name : rawCandidates) {
+            if (name == null || name.equals(selfName)) {
+                continue;
+            }
+            if (VALID_PLAYER_NAME_PATTERN.matcher(name).matches()) {
+                candidates.add(name);
+            }
+        }
+        if (candidates.isEmpty()) {
+            return;
+        }
+
+        net.minecraft.util.IChatComponent rewritten =
+                ChatNameLinker.makeNamesClickable(event.message, candidates);
+        if (rewritten != null) {
+            event.message = rewritten;
         }
     }
 
@@ -472,6 +610,14 @@ public class BedwarsRuntime {
                 }
             }
         }
+
+        // Killfeed: standalone HUD element with its own toggle, drawn even when
+        // the main stats panel is hidden. The renderer re-checks its gates and
+        // skips expired entries; entries are pruned opportunistically.
+        if (ModConfig.isModEnabled() && ModConfig.isKillfeedEnabled() && !killFeedTracker.isEmpty()) {
+            ScaledResolution resolution = new ScaledResolution(mc);
+            killFeedRenderer.render(resolution, mc, killFeedTracker);
+        }
     }
 
     /**
@@ -501,7 +647,20 @@ public class BedwarsRuntime {
 
         Minecraft mc = Minecraft.getMinecraft();
 
+        // Deferred /bw edithud open: wait for the chat screen to close.
+        if (hudEditorOpenTicks > 0) {
+            hudEditorOpenTicks--;
+            if (mc.currentScreen == null) {
+                hudEditorOpenTicks = 0;
+                mc.displayGuiScreen(new GuiHudEditor());
+            }
+        }
+
         antiCheatService.onClientTick(mc);
+
+        // Tab-list stat suffixes: re-applied on the injector's own ~10-tick
+        // cadence (Hypixel resends display names), restored when inactive.
+        tabStatsInjector.onClientTick(mc);
 
         // AFK anti-kick: strafe left then right every 60 seconds
         if (state.afkEnabled && mc.thePlayer != null) {
@@ -555,6 +714,8 @@ public class BedwarsRuntime {
             if (ScoreboardGameStateDetector.isMatchInProgress(mc)) {
                 LOGGER.info("Bedwars match start detected via scoreboard (chat trigger missed)");
                 finalKillLedger.clear();
+                killFeedTracker.clear();
+                mapLearningService.onMatchStart();
                 lobbyTrackerService.activateMatchTracking(mc);
             }
         }
@@ -645,6 +806,10 @@ public class BedwarsRuntime {
 
         if (ModConfig.isRushPredictorEnabled()) {
             matchThreatService.checkRushRiskPredictor(mc, currentTime);
+        }
+
+        if (ModConfig.isMapLearningEnabled()) {
+            mapLearningService.onInGameTick(mc, currentTime);
         }
 
         if (ModConfig.isInvisiblePlayerAlertsEnabled()) {
@@ -1092,6 +1257,7 @@ public class BedwarsRuntime {
             return;
         }
         renderFetchRequests.put(playerName, now);
+        // Render-path re-requests are retries — let everything else jump ahead.
         HypixelAPI.fetchStatsAsync(playerName, new HypixelAPI.StatsCallback() {
             @Override
             public void onStatsLoaded(BedwarsStats stats) {
@@ -1100,7 +1266,7 @@ public class BedwarsRuntime {
             @Override
             public void onError(String error) {
             }
-        });
+        }, HypixelAPI.FetchPriority.BACKGROUND);
     }
 
     private void addToChatDetectedIfEligible(String playerName, BedwarsStats stats) {
@@ -1167,9 +1333,85 @@ public class BedwarsRuntime {
                 break;
             }
         }
+        // Victims are frequently despawned by the time the final-kill line
+        // arrives (death teleports to spectator) \u2014 fall back to the scoreboard
+        // team registration / sidebar snapshot for the color.
+        if (teamName == null) {
+            teamColor = resolveTeamColorCode(mc, victim);
+        }
         finalKillLedger.recordFinalKill(victim, teamName, teamColor);
 
+        // Killfeed entry with the killer attached. FINAL_KILL_PATTERN captures
+        // the killer in group 2 ("by X") or group 3 ("escape X"); environmental
+        // and possessive phrasings capture no killer at all \u2014 tolerated as null.
+        if (ModConfig.isKillfeedEnabled()) {
+            String killer = m.group(2) != null ? m.group(2) : m.group(3);
+            killFeedTracker.addEntry(victim, killer, teamColor, System.currentTimeMillis());
+        }
+
         // Final-kill chat context disabled \u2014 HUD's FINAL KILL TALLY section conveys the same info.
+    }
+
+    /**
+     * Resolves a player's team color code ("\u00a7c" etc.) for the killfeed: live
+     * entity first (the same recipe {@link #handleFinalKill} uses for the
+     * ledger), then the scoreboard team registration \u2014 membership outlives the
+     * entity, which is often despawned by the time a death message arrives \u2014
+     * then the sidebar snapshot in {@code state.scoreboardTeamStatuses}.
+     * Falls back to gray.
+     */
+    private String resolveTeamColorCode(Minecraft mc, String playerName) {
+        if (mc == null || mc.theWorld == null || playerName == null) {
+            return EnumChatFormatting.GRAY.toString();
+        }
+
+        net.minecraft.scoreboard.ScorePlayerTeam team = null;
+        for (EntityPlayer p : mc.theWorld.playerEntities) {
+            if (!p.getName().equals(playerName)) continue;
+            net.minecraft.scoreboard.Team t = p.getTeam();
+            if (t instanceof net.minecraft.scoreboard.ScorePlayerTeam) {
+                team = (net.minecraft.scoreboard.ScorePlayerTeam) t;
+            }
+            break;
+        }
+        if (team == null && mc.theWorld.getScoreboard() != null) {
+            team = mc.theWorld.getScoreboard().getPlayersTeam(playerName);
+        }
+        if (team != null) {
+            String code = firstColorCode(team.getColorPrefix());
+            if (code != null) {
+                return code;
+            }
+            // Prefix carried no color code \u2014 match the team's registered name
+            // against the sidebar snapshot (refreshed every 10 ticks).
+            String registered = team.getRegisteredName();
+            if (registered != null) {
+                String registeredLower = registered.toLowerCase(java.util.Locale.ROOT);
+                for (ScoreboardGameStateDetector.TeamStatus ts : state.scoreboardTeamStatuses.values()) {
+                    if (ts.colorCode != null && !ts.colorCode.isEmpty()
+                            && registeredLower.contains(ts.teamName.toLowerCase(java.util.Locale.ROOT))) {
+                        return ts.colorCode;
+                    }
+                }
+            }
+        }
+        return EnumChatFormatting.GRAY.toString();
+    }
+
+    /** First legacy color code ("\u00a7" + 0-9/a-f) in {@code text}, or null. */
+    private static String firstColorCode(String text) {
+        if (text == null) {
+            return null;
+        }
+        for (int i = 0; i < text.length() - 1; i++) {
+            if (text.charAt(i) == '\u00a7') {
+                char code = text.charAt(i + 1);
+                if ((code >= '0' && code <= '9') || (code >= 'a' && code <= 'f')) {
+                    return "\u00a7" + code;
+                }
+            }
+        }
+        return null;
     }
 
     private void handleReconnectMessage(Minecraft mc, String message) {

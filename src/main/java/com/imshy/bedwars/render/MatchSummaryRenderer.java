@@ -51,8 +51,18 @@ public class MatchSummaryRenderer {
 
         int screenWidth = resolution.getScaledWidth();
         int screenHeight = resolution.getScaledHeight();
-        int originX = (screenWidth - width) / 2;
-        int originY = Math.max(20, (screenHeight - height) / 3);
+        int originX;
+        int originY;
+        if (ModConfig.isMatchSummaryCustomPosition()) {
+            // HUD-editor anchor + offset override (raw ScaledResolution space).
+            originX = HudAnchorMath.computeX(ModConfig.getMatchSummaryAnchorX(),
+                    screenWidth, width, ModConfig.getMatchSummaryAnchorOffsetX());
+            originY = HudAnchorMath.computeY(ModConfig.getMatchSummaryAnchorY(),
+                    screenHeight, height, ModConfig.getMatchSummaryAnchorOffsetY());
+        } else {
+            originX = (screenWidth - width) / 2;
+            originY = Math.max(20, (screenHeight - height) / 3);
+        }
 
         // Fade the panel toward the end of its TTL so it doesn't snap away.
         long age = summary.getAgeMs();

@@ -429,7 +429,9 @@ public class MatchThreatService {
         }
 
         if (playerInfo.getDisplayName() != null) {
-            return playerInfo.getDisplayName().getFormattedText();
+            // The display name may carry a TabStatsInjector suffix; strip it so
+            // the last-colour-code team heuristic above only sees server text.
+            return TabStatsInjector.stripInjectedSuffix(playerInfo.getDisplayName().getFormattedText());
         }
 
         Team team = player.getTeam();

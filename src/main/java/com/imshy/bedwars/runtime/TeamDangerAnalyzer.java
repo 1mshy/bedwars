@@ -109,13 +109,7 @@ public class TeamDangerAnalyzer {
             BedwarsStats stats = HypixelAPI.getCachedStats(tp.name);
             if (stats == null || !stats.isLoaded()) {
                 if (!state.pendingTabListFetches.contains(tp.name) && HypixelAPI.hasApiKey()) {
-                    state.pendingTabListFetches.add(tp.name);
-                    HypixelAPI.fetchStatsAsync(tp.name, new HypixelAPI.StatsCallback() {
-                        @Override
-                        public void onStatsLoaded(BedwarsStats s) { }
-                        @Override
-                        public void onError(String error) { }
-                    });
+                    requestTabPlayerStats(tp);
                 }
                 continue;
             }
@@ -216,13 +210,7 @@ public class TeamDangerAnalyzer {
             BedwarsStats stats = HypixelAPI.getCachedStats(tp.name);
             if (stats == null || !stats.isLoaded()) {
                 if (!state.pendingTabListFetches.contains(tp.name) && HypixelAPI.hasApiKey()) {
-                    state.pendingTabListFetches.add(tp.name);
-                    HypixelAPI.fetchStatsAsync(tp.name, new HypixelAPI.StatsCallback() {
-                        @Override
-                        public void onStatsLoaded(BedwarsStats s) { }
-                        @Override
-                        public void onError(String error) { }
-                    });
+                    requestTabPlayerStats(tp);
                 }
                 continue;
             }
@@ -264,6 +252,38 @@ public class TeamDangerAnalyzer {
         });
 
         return summaries;
+    }
+
+    /**
+     * Queue a stat fetch for a tab player, preferring the tab list's real
+     * GameProfile UUID (skips the Mojang round-trip). On a transient error
+     * (rate limit, timeout) the name is removed from pendingTabListFetches — on
+     * the client thread, since the set is unsynchronized — so the fetch becomes
+     * retryable; permanent failures (bad API key) stay one-attempt.
+     */
+    private void requestTabPlayerStats(TabListPlayer tp) {
+        final String tabName = tp.name;
+        state.pendingTabListFetches.add(tabName);
+        HypixelAPI.StatsCallback callback = new HypixelAPI.StatsCallback() {
+            @Override
+            public void onStatsLoaded(BedwarsStats s) { }
+
+            @Override
+            public void onError(String error) {
+                if (!HypixelAPI.isRetryableError(error)) {
+                    return;
+                }
+                Minecraft.getMinecraft().addScheduledTask(
+                        () -> state.pendingTabListFetches.remove(tabName));
+            }
+        };
+
+        HypixelAPI.FetchPriority priority = TabListScanner.resolveFetchPriority(tp);
+        if (tp.uuid != null) {
+            HypixelAPI.fetchStatsWithUuid(tabName, tp.uuid, callback, priority);
+        } else {
+            HypixelAPI.fetchStatsAsync(tabName, callback, priority);
+        }
     }
 
     private static String formatTeamDangerLine(TeamDangerEntry summary) {

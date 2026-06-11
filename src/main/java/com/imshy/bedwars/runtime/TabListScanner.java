@@ -1,5 +1,8 @@
 package com.imshy.bedwars.runtime;
 
+import com.imshy.bedwars.HypixelAPI;
+import com.imshy.bedwars.ModConfig;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.network.NetworkPlayerInfo;
 import net.minecraft.util.EnumChatFormatting;
@@ -41,7 +44,11 @@ public class TabListScanner {
 
             String formattedName = null;
             if (info.getDisplayName() != null) {
-                formattedName = info.getDisplayName().getFormattedText();
+                // Tab stats injection appends " §8| ..." (and "[NICK]" for nicked
+                // players) to display names; team parsing must see the server's
+                // original text or the suffix's bracket/color leaks into results.
+                formattedName = TabStatsInjector.stripInjectedSuffix(
+                        info.getDisplayName().getFormattedText());
             }
 
             if (formattedName == null || formattedName.isEmpty()) {
@@ -74,7 +81,10 @@ public class TabListScanner {
 
         String formattedName = null;
         if (localInfo.getDisplayName() != null) {
-            formattedName = localInfo.getDisplayName().getFormattedText();
+            // The local player is never injected, so the strip is a no-op here —
+            // kept for symmetry with scanAllPlayers.
+            formattedName = TabStatsInjector.stripInjectedSuffix(
+                    localInfo.getDisplayName().getFormattedText());
         }
 
         if (formattedName == null || formattedName.isEmpty()) {
@@ -112,6 +122,53 @@ public class TabListScanner {
         }
 
         return "?";
+    }
+
+    /**
+     * Parse a star count from a tab display-name bracket token. In pre-game
+     * lobbies Hypixel's tab format is "[123✫] Name", so parseTeamName captures
+     * "123✫"; in-game the same slot holds the team tag (e.g. "R"), which has no
+     * leading digits. The digits must be followed by a non-alphanumeric glyph
+     * (✫, ✪, ⚝, ...) so plain numeric tokens are not mistaken for star counts.
+     *
+     * @return the star count, or -1 when the token is not a star prefix
+     */
+    public static int parseStarCount(String bracketToken) {
+        if (bracketToken == null) {
+            return -1;
+        }
+        String token = bracketToken.trim();
+        int digits = 0;
+        while (digits < token.length() && Character.isDigit(token.charAt(digits))) {
+            digits++;
+        }
+        if (digits == 0 || digits == token.length()) {
+            return -1;
+        }
+        if (Character.isLetterOrDigit(token.charAt(digits))) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(token.substring(0, digits));
+        } catch (NumberFormatException e) {
+            return -1; // absurd digit runs overflow int
+        }
+    }
+
+    /**
+     * Pick the fetch-queue priority for a tab-list player from what is already
+     * known: unknown identity (no cached stats, no known UUID) outranks every
+     * tab-driven hint; a parsed high-star prefix outranks the default. Shared
+     * by the tab-scan fetch paths (LobbyTrackerService, TeamDangerAnalyzer).
+     */
+    static HypixelAPI.FetchPriority resolveFetchPriority(TabListPlayer tp) {
+        if (HypixelAPI.getCachedStats(tp.name) == null && !HypixelAPI.hasKnownUuid(tp.name)) {
+            return HypixelAPI.FetchPriority.UNKNOWN_PLAYER;
+        }
+        if (parseStarCount(tp.teamName) >= ModConfig.getHighStarThreshold()) {
+            return HypixelAPI.FetchPriority.TAB_HIGH_STAR;
+        }
+        return HypixelAPI.FetchPriority.NORMAL;
     }
 
     public static class TabListPlayer {

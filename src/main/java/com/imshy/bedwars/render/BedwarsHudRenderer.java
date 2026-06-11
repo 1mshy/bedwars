@@ -92,10 +92,8 @@ public class BedwarsHudRenderer {
         GlStateManager.pushMatrix();
         GlStateManager.scale(scale, scale, 1.0);
 
-        int scaledWidth = (int) (resolution.getScaledWidth() / scale);
-        int scaledHeight = (int) (resolution.getScaledHeight() / scale);
-
-        int[] origin = computeOrigin(scaledWidth, scaledHeight, panelWidth, panelHeight);
+        int[] origin = computeOrigin(resolution.getScaledWidth(), resolution.getScaledHeight(),
+                scale, panelWidth, panelHeight);
         int originX = origin[0];
         int originY = origin[1];
 
@@ -543,7 +541,25 @@ public class BedwarsHudRenderer {
         return null;
     }
 
-    private int[] computeOrigin(int screenWidth, int screenHeight, int panelWidth, int panelHeight) {
+    /**
+     * Panel origin in the scale-divided space the panel draws in. Raw screen
+     * dims are passed so the HUD-editor anchor+offset override (stored in
+     * unscaled ScaledResolution pixels) can be resolved in raw space first and
+     * converted, keeping editor hit-testing and rendering consistent when
+     * hudScale != 1.0.
+     */
+    private int[] computeOrigin(int rawScreenWidth, int rawScreenHeight, double scale,
+                                int panelWidth, int panelHeight) {
+        if (ModConfig.isHudCustomPosition()) {
+            int rawX = HudAnchorMath.computeX(ModConfig.getHudAnchorX(), rawScreenWidth,
+                    (int) Math.round(panelWidth * scale), ModConfig.getHudAnchorOffsetX());
+            int rawY = HudAnchorMath.computeY(ModConfig.getHudAnchorY(), rawScreenHeight,
+                    (int) Math.round(panelHeight * scale), ModConfig.getHudAnchorOffsetY());
+            return new int[]{(int) Math.round(rawX / scale), (int) Math.round(rawY / scale)};
+        }
+
+        int screenWidth = (int) (rawScreenWidth / scale);
+        int screenHeight = (int) (rawScreenHeight / scale);
         String position = ModConfig.getHudPosition();
         int margin = 4;
         int x, y;

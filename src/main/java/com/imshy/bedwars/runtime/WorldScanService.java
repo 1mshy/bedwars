@@ -19,6 +19,7 @@ import net.minecraft.util.EnumChatFormatting;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -29,6 +30,13 @@ import java.util.HashSet;
 
 public class WorldScanService {
     private static final double GENERATOR_RESET_DISTANCE_SQ = 25.0D; // 5 blocks
+    /**
+     * Two same-type generator anchors within this many blocks (Chebyshev distance) are the
+     * same generator; only one is tracked. Matches the 3-block Chebyshev item-attribution box
+     * in scanGeneratorResources, so two anchors that would count the same dropped items are
+     * always collapsed to one. Package-private for tests.
+     */
+    static final int GENERATOR_MERGE_RADIUS = 3;
     private static final long MIN_VALID_INTERVAL_MS = 250L;
     private static final long MAX_VALID_INTERVAL_MS = 120000L;
     private static final int MIN_PREDICTION_BASELINE = 2;
@@ -199,7 +207,11 @@ public class WorldScanService {
         int scanRange = ModConfig.getGeneratorScanRange();
         BlockPos playerPos = mc.thePlayer.getPosition();
         long now = System.currentTimeMillis();
-        Set<BlockPos> observedGenerators = new HashSet<BlockPos>();
+
+        // Canonical cluster anchors seen this pass (pos -> isDiamond). Item attribution and
+        // label picking are deferred until radius suppression below has chosen the surviving
+        // anchors, so a duplicate anchor never pays for (or double-counts) an item scan.
+        Map<BlockPos, Boolean> observedAnchors = new HashMap<BlockPos, Boolean>();
 
         int scanRangeSq = scanRange * scanRange;
         for (int x = -scanRange; x <= scanRange; x++) {
@@ -240,20 +252,48 @@ public class WorldScanService {
                             continue;
                         }
 
-                        observedGenerators.add(checkPos);
-
-                        GeneratorEntry existing = state.trackedGenerators.get(checkPos);
-                        if (existing == null) {
-                            existing = new GeneratorEntry(checkPos, isDiamond);
-                            state.trackedGenerators.put(checkPos, existing);
-                        }
-
-                        GeneratorResourceScan scan = scanGeneratorResources(mc, checkPos, isDiamond);
-                        updateGeneratorFromObservedScan(existing, scan.resourceCount, scan.hasDesignatedIngotOnTop, now);
-                        existing.labelPosition = pickGeneratorLabelPosition(mc, checkPos, isDiamond);
+                        observedAnchors.put(checkPos, isDiamond);
                     }
                 }
             }
+        }
+
+        // Same-type anchor pools for radius suppression: anchors observed this pass plus the
+        // already-tracked ones, so admission (below) and eviction (further below) judge every
+        // anchor against the same set — add/evict disagreement is what caused the old label
+        // flapping regression.
+        Set<BlockPos> diamondAnchors = new HashSet<BlockPos>();
+        Set<BlockPos> emeraldAnchors = new HashSet<BlockPos>();
+        for (Map.Entry<BlockPos, Boolean> observed : observedAnchors.entrySet()) {
+            (observed.getValue() ? diamondAnchors : emeraldAnchors).add(observed.getKey());
+        }
+        for (Map.Entry<BlockPos, GeneratorEntry> tracked : state.trackedGenerators.entrySet()) {
+            (tracked.getValue().isDiamond ? diamondAnchors : emeraldAnchors).add(tracked.getKey());
+        }
+
+        Set<BlockPos> observedGenerators = new HashSet<BlockPos>();
+        for (Map.Entry<BlockPos, Boolean> observed : observedAnchors.entrySet()) {
+            BlockPos checkPos = observed.getKey();
+            boolean isDiamond = observed.getValue();
+
+            // Decorative same-type blocks at another Y level, or with a small gap the same-Y
+            // adjacency BFS cannot bridge, would otherwise become independent entries that
+            // both attribute the same dropped items; only the suppression winner is admitted.
+            if (!checkPos.equals(resolveSuppressionWinner(checkPos, isDiamond ? diamondAnchors : emeraldAnchors))) {
+                continue;
+            }
+
+            observedGenerators.add(checkPos);
+
+            GeneratorEntry existing = state.trackedGenerators.get(checkPos);
+            if (existing == null) {
+                existing = new GeneratorEntry(checkPos, isDiamond);
+                state.trackedGenerators.put(checkPos, existing);
+            }
+
+            GeneratorResourceScan scan = scanGeneratorResources(mc, checkPos, isDiamond);
+            updateGeneratorFromObservedScan(existing, scan.resourceCount, scan.hasDesignatedIngotOnTop, now);
+            existing.labelPosition = pickGeneratorLabelPosition(mc, checkPos, isDiamond);
         }
 
         Iterator<Map.Entry<BlockPos, GeneratorEntry>> iterator = state.trackedGenerators.entrySet().iterator();
@@ -267,12 +307,27 @@ public class WorldScanService {
                 continue;
             }
 
-            // Drop entries that are no longer the canonical cluster anchor (cluster topology
-            // changed, e.g. a neighbouring same-type block was placed/destroyed).
-            if (!observedGenerators.contains(generatorPos)
-                    && isCollapsedClusterMember(mc, generatorPos, generator.isDiamond)) {
-                iterator.remove();
-                continue;
+            if (!observedGenerators.contains(generatorPos)) {
+                // Drop entries that are no longer the canonical cluster anchor (cluster topology
+                // changed, e.g. a neighbouring same-type block was placed/destroyed).
+                if (isCollapsedClusterMember(mc, generatorPos, generator.isDiamond)) {
+                    iterator.remove();
+                    continue;
+                }
+
+                // Same suppression rule as admission: a tracked entry beaten by a same-type
+                // anchor within the merge radius folds its state into the winner and goes away
+                // (e.g. a duplicate tracked while the real anchor's chunk was still unloaded).
+                BlockPos winner = resolveSuppressionWinner(generatorPos,
+                        generator.isDiamond ? diamondAnchors : emeraldAnchors);
+                if (!winner.equals(generatorPos)) {
+                    GeneratorEntry winnerEntry = state.trackedGenerators.get(winner);
+                    if (winnerEntry != null) {
+                        mergeGeneratorState(winnerEntry, generator);
+                    }
+                    iterator.remove();
+                    continue;
+                }
             }
 
             if (isAnyPlayerNearGenerator(mc, generatorPos)) {
@@ -283,6 +338,70 @@ public class WorldScanService {
             if (!observedGenerators.contains(generatorPos)) {
                 predictGeneratorCountWhenUnobserved(generator, now);
             }
+        }
+    }
+
+    /**
+     * Radius-based duplicate suppression. Decorative same-type blocks near a spawner that sit
+     * at a different Y level, or with a >=1 block gap, are invisible to the same-Y adjacency
+     * BFS in {@link #findGeneratorCluster} and would otherwise be tracked as independent
+     * generators that double-count the same dropped items (scanGeneratorResources attributes
+     * items in a 3-block Chebyshev box, so nearby entries see each other's items). Among
+     * same-type anchors within {@link #GENERATOR_MERGE_RADIUS} blocks (Chebyshev distance,
+     * matching that item box), exactly one survives: the lex-greatest (x, then z, then y),
+     * the same convention used for cluster collapsing.
+     *
+     * Returns the surviving anchor {@code pos} resolves to — {@code pos} itself when it wins.
+     * Resolution hops to the lex-greatest anchor within the radius until a fixpoint, so a
+     * loser always maps to an anchor that itself survives, deterministically and independent
+     * of {@code sameTypeAnchors} iteration order. Pure helper (no world access) so admission
+     * and eviction share the exact same decision and the winner never flaps between passes.
+     */
+    static BlockPos resolveSuppressionWinner(BlockPos pos, Collection<BlockPos> sameTypeAnchors) {
+        BlockPos winner = pos;
+        while (true) {
+            BlockPos next = winner;
+            for (BlockPos other : sameTypeAnchors) {
+                if (chebyshevDistance(winner, other) <= GENERATOR_MERGE_RADIUS && lexGreater(other, next)) {
+                    next = other;
+                }
+            }
+            if (next.equals(winner)) {
+                return winner;
+            }
+            winner = next;
+        }
+    }
+
+    static int chebyshevDistance(BlockPos a, BlockPos b) {
+        int dx = Math.abs(a.getX() - b.getX());
+        int dy = Math.abs(a.getY() - b.getY());
+        int dz = Math.abs(a.getZ() - b.getZ());
+        return Math.max(dx, Math.max(dy, dz));
+    }
+
+    /**
+     * Folds a suppressed duplicate entry's state into the surviving winner so nothing the
+     * duplicate accumulated is lost. Both entries were attributing the same dropped items,
+     * hence max — not sum — for counts.
+     */
+    private static void mergeGeneratorState(GeneratorEntry winner, GeneratorEntry loser) {
+        if (loser.hasEverHadResource && !winner.hasEverHadResource) {
+            winner.hasEverHadResource = true;
+            // The loser was the entry actually rendering a label; keep its spot until the
+            // next observed pass re-picks one for the winner.
+            if (loser.labelPosition != null) {
+                winner.labelPosition = loser.labelPosition;
+            }
+        }
+        if (loser.resourceCount > winner.resourceCount) {
+            winner.resourceCount = loser.resourceCount;
+            // Keep the observed baseline consistent with the merged count so the next observed
+            // scan doesn't read the merge as a spawn increment.
+            winner.lastObservedCount = Math.max(winner.lastObservedCount, loser.lastObservedCount);
+        }
+        if (winner.estimatedGenerationIntervalMs <= 0L && loser.estimatedGenerationIntervalMs > 0L) {
+            winner.estimatedGenerationIntervalMs = loser.estimatedGenerationIntervalMs;
         }
     }
 

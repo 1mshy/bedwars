@@ -49,8 +49,18 @@ public class PreGameBriefingRenderer {
 
         int screenWidth = resolution.getScaledWidth();
         int screenHeight = resolution.getScaledHeight();
-        int originX = (screenWidth - width) / 2;
-        int originY = Math.max(20, (screenHeight - height) / 4);
+        int originX;
+        int originY;
+        if (ModConfig.isPreGameBriefingCustomPosition()) {
+            // HUD-editor anchor + offset override (raw ScaledResolution space).
+            originX = HudAnchorMath.computeX(ModConfig.getPreGameBriefingAnchorX(),
+                    screenWidth, width, ModConfig.getPreGameBriefingAnchorOffsetX());
+            originY = HudAnchorMath.computeY(ModConfig.getPreGameBriefingAnchorY(),
+                    screenHeight, height, ModConfig.getPreGameBriefingAnchorOffsetY());
+        } else {
+            originX = (screenWidth - width) / 2;
+            originY = Math.max(20, (screenHeight - height) / 4);
+        }
 
         long age = briefing.getAgeMs();
         float fadeAlpha = 1.0F;

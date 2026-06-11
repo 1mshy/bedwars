@@ -164,6 +164,12 @@ public class LobbyTrackerService {
         }
 
         if (HypixelAPI.hasApiKey()) {
+            // Players we know nothing about decide threat fastest — bump them.
+            // Computed before the fetch call, which seeds the UUID cache itself.
+            HypixelAPI.FetchPriority priority = (HypixelAPI.getCachedStats(playerName) == null
+                    && !HypixelAPI.hasKnownUuid(playerName))
+                            ? HypixelAPI.FetchPriority.UNKNOWN_PLAYER
+                            : HypixelAPI.FetchPriority.NORMAL;
             HypixelAPI.fetchStatsWithUuid(playerName, playerUuid, new HypixelAPI.StatsCallback() {
                 @Override
                 public void onStatsLoaded(BedwarsStats stats) {
@@ -174,7 +180,7 @@ public class LobbyTrackerService {
                 public void onError(String error) {
                     LOGGER.warn("Stat lookup error for {}: {}", playerName, error);
                 }
-            });
+            }, priority);
         } else {
             LOGGER.debug("Player joined: {} (no API key set)", playerName);
         }
@@ -199,13 +205,34 @@ public class LobbyTrackerService {
                 continue;
             }
 
-            state.pendingTabListFetches.add(tp.name);
-            HypixelAPI.fetchStatsAsync(tp.name, new HypixelAPI.StatsCallback() {
+            final String tabName = tp.name;
+            state.pendingTabListFetches.add(tabName);
+            HypixelAPI.StatsCallback callback = new HypixelAPI.StatsCallback() {
                 @Override
                 public void onStatsLoaded(BedwarsStats stats) { }
+
                 @Override
-                public void onError(String error) { }
-            });
+                public void onError(String error) {
+                    // Make the name eligible for a refetch, but only after transient
+                    // failures (local/Hypixel rate limit, timeouts) — permanent ones
+                    // like a bad API key would otherwise retry on every scan.
+                    // pendingTabListFetches is client-thread-only state, so marshal
+                    // the removal back like the chat path does.
+                    if (!HypixelAPI.isRetryableError(error)) {
+                        return;
+                    }
+                    Minecraft.getMinecraft().addScheduledTask(
+                            () -> state.pendingTabListFetches.remove(tabName));
+                }
+            };
+
+            HypixelAPI.FetchPriority priority = TabListScanner.resolveFetchPriority(tp);
+            if (tp.uuid != null) {
+                // Tab list carries the real GameProfile UUID — skip the Mojang round-trip.
+                HypixelAPI.fetchStatsWithUuid(tabName, tp.uuid, callback, priority);
+            } else {
+                HypixelAPI.fetchStatsAsync(tabName, callback, priority);
+            }
         }
 
         LOGGER.debug("Tab list scan: queued stats for {} players", allPlayers.size());

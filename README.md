@@ -16,6 +16,11 @@ Check on Mac:
 /usr/libexec/java_home -V
 export JAVA_HOME=$(/usr/libexec/java_home -v <version>)
 ```
+
+```bash
+./gradlew build
+```
+
 On Windows set the JAVA_HOME environment variable to point to your JDK 8 installation.
 Then set your PATH variable to include `%JAVA_HOME%\bin`.
 

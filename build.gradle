@@ -61,6 +61,9 @@ dependencies {
     //compile "some.group:artifact:version"
     compile "gg.essential:elementa-1.8.9-forge:657"
     compile "gg.essential:universalcraft-1.8.9-forge:451"
+
+    // unit tests — resolved from mavenCentral()
+    testCompile 'junit:junit:4.12'
     // real examples
     //compile 'com.mod-buildcraft:buildcraft:6.0.8:dev'  // adds buildcraft to the dev env
     //compile 'com.googlecode.efficient-java-matrix-library:ejml:0.24' // adds ejml to the dev env
