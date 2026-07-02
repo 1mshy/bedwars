@@ -1,6 +1,7 @@
 package com.imshy.bedwars.runtime;
 
 import com.imshy.bedwars.BedwarsStats;
+import com.imshy.bedwars.ClientThread;
 import com.imshy.bedwars.HypixelAPI;
 
 import com.imshy.bedwars.runtime.TabListScanner.TabListPlayer;
@@ -107,7 +108,11 @@ public class TeamDangerAnalyzer {
             summary.totalPlayers++;
 
             BedwarsStats stats = HypixelAPI.getCachedStats(tp.name);
-            if (stats == null || !stats.isLoaded()) {
+            // Treat any cached object as "have data" (matches LobbyTrackerService's
+            // getCachedStats != null gate). A cached non-loaded error object can only
+            // be refreshed by a real network fetch after the TTL expires, so re-entering
+            // here every tick would just churn pendingTabListFetches with no benefit.
+            if (stats == null) {
                 if (!state.pendingTabListFetches.contains(tp.name) && HypixelAPI.hasApiKey()) {
                     requestTabPlayerStats(tp);
                 }
@@ -208,7 +213,11 @@ public class TeamDangerAnalyzer {
             summary.totalPlayers++;
 
             BedwarsStats stats = HypixelAPI.getCachedStats(tp.name);
-            if (stats == null || !stats.isLoaded()) {
+            // Treat any cached object as "have data" (matches LobbyTrackerService's
+            // getCachedStats != null gate). A cached non-loaded error object can only
+            // be refreshed by a real network fetch after the TTL expires, so re-entering
+            // here every tick would just churn pendingTabListFetches with no benefit.
+            if (stats == null) {
                 if (!state.pendingTabListFetches.contains(tp.name) && HypixelAPI.hasApiKey()) {
                     requestTabPlayerStats(tp);
                 }
@@ -271,15 +280,19 @@ public class TeamDangerAnalyzer {
         state.pendingTabListFetches.add(tabName);
         HypixelAPI.StatsCallback callback = new HypixelAPI.StatsCallback() {
             @Override
-            public void onStatsLoaded(BedwarsStats s) { }
+            public void onStatsLoaded(BedwarsStats s) {
+                // Drop the in-flight guard once resolved; the getCachedStats gate
+                // above suppresses refetch while fresh, and after the 60-min TTL
+                // the name becomes eligible again instead of staying stuck.
+                ClientThread.run(() -> state.pendingTabListFetches.remove(tabName));
+            }
 
             @Override
             public void onError(String error) {
                 if (!HypixelAPI.isRetryableError(error)) {
                     return;
                 }
-                Minecraft.getMinecraft().addScheduledTask(
-                        () -> state.pendingTabListFetches.remove(tabName));
+                ClientThread.run(() -> state.pendingTabListFetches.remove(tabName));
             }
         };
 

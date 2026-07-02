@@ -1,169 +1,122 @@
-# Minecraft Forge 1.8.9 MDK
+# Bedwars Stats — Hypixel Bedwars Utility Mod
 
-A Minecraft Forge mod development kit for Minecraft 1.8.9.
+A **client-side** Minecraft Forge **1.8.9** mod for Hypixel Bedwars. It looks up
+players' stats in real time and turns them into on-screen threat assessment:
+lobby stat panels, in-world nametags, per-team danger summaries, a kill feed,
+bed/generator tracking, ender-pearl trajectory prediction, and optional autoplay.
 
-## Prerequisites
+It is a lookup/overlay tool that talks to the public Hypixel API and reads
+in-game chat, tab list, and the world — it does not modify gameplay or automate
+combat.
 
-- **Java JDK 8** - Forge 1.8.9 requires Java 8. Newer versions will not work.
-  - [Download Adoptium JDK 8](https://adoptium.net/temurin/releases/?version=8)
-- **Git** (optional, for version control)
+## Features
 
-## Initial Setup
+- **Player stats & threat tiering** — stars, FKDR, WLR, beds, recent (monthly/weekly)
+  form, and a LOW → EXTREME threat level. Nick (alias) detection included.
+- **Per-mode splits** — solo / doubles / 3s / 4s FKDR so a fours stacker is easy to
+  tell apart from a solos main at the same star (see `/bw lookup`).
+- **Lobby HUD** — auto stat panel for players who join your lobby, with a
+  drag-and-drop layout editor (`/bw edithud`).
+- **Team danger summary** — per-team average threat from the tab list, with a
+  world-scan fallback early in a game.
+- **In-world overlays** — threat-colored nametags, enemy last-seen tracking,
+  generator ESP, final-kill feed.
+- **Tactical extras** — rush-risk prediction, bed-proximity alerts, ender-pearl
+  trajectory preview, configurable audio cues, auto-blacklist.
+- **Persistence** — encounter history and a blacklist saved across sessions.
 
-Get the correct Java JDK (1.8 OR 8)
-Check on Mac:
-```bash
-/usr/libexec/java_home -V
-export JAVA_HOME=$(/usr/libexec/java_home -v <version>)
-```
+## Getting started
 
-```bash
-./gradlew build
-```
-
-On Windows set the JAVA_HOME environment variable to point to your JDK 8 installation.
-Then set your PATH variable to include `%JAVA_HOME%\bin`.
-
-Before importing into any IDE, you must run the Gradle setup:
-
-```bash
-# Windows
-gradlew setupDecompWorkspace
-
-# Linux/macOS
-./gradlew setupDecompWorkspace
-```
-
-> **Note:** This process downloads and decompiles Minecraft, which may take several minutes.
-
----
-
-## IDE Setup
-
-### IntelliJ IDEA (Recommended)
-
-1. **Import the project**
-   - Open IntelliJ IDEA
-   - Select `File` → `Open`
-   - Navigate to the project folder and select `build.gradle`
-   - Click `Open as Project`
-
-2. **Generate run configurations**
-   ```bash
-   # Windows
-   gradlew genIntellijRuns
-   
-   # Linux/macOS
-   ./gradlew genIntellijRuns
+1. **Install** the built JAR into your `mods/` folder (Forge 1.8.9 required).
+2. **Get a Hypixel API key** — log in at
+   [developer.hypixel.net/dashboard](https://developer.hypixel.net/dashboard) and
+   create a key. (On first join without a key, the mod prints a clickable prompt.)
+3. **Set it in game:**
    ```
-
-3. **Refresh Gradle** (if needed)
-   - Open the Gradle tool window (`View` → `Tool Windows` → `Gradle`)
-   - Click the refresh icon
-
-4. **Run the mod**
-   - Use the generated run configurations in the top-right dropdown
-   - Select `runClient` and click the green play button
-
----
-
-### Eclipse
-
-1. **Generate Eclipse files**
-   ```bash
-   # Windows
-   gradlew eclipse
-   
-   # Linux/macOS
-   ./gradlew eclipse
+   /bw setkey <your-key>
    ```
+   The mod does a quick self-lookup and confirms whether the key is valid.
+4. **Use it** — join a Bedwars lobby and stats populate automatically, or run
+   `/bw lookup <player>` / `/bw all`.
 
-2. **Import the project**
-   - Open Eclipse
-   - Set your workspace to the `eclipse` folder inside the project directory
-   - Select `File` → `Import` → `General` → `Existing Projects into Workspace`
-   - Browse to the project root and import
+> Without a valid key, all stat features are silently inactive — the key is the
+> one required setup step.
 
-3. **Run the mod**
-   - Right-click the project → `Run As` → `Java Application`
-   - Select `GradleStart` as the main class
+## Commands
 
----
+All commands are client-side (`/bw`), never sent to the server.
 
-### Visual Studio Code
+| Command | Description |
+| --- | --- |
+| `/bw setkey <key>` | Set (and validate) your Hypixel API key |
+| `/bw lookup <player>` | Look up one player's stats, incl. per-mode breakdown |
+| `/bw all` | Look up every player in the current lobby |
+| `/bw info` | Show threats and history for players in the lobby |
+| `/bw autoplay <ones\|twos\|threes\|fours\|stop\|requeue>` | Auto-queue until a safe lobby |
+| `/bw afk` | Toggle anti-kick movement |
+| `/bw rejoin` | Re-run game-start setup (bed tracking, generators, scan) |
+| `/bw blacklist <add\|remove\|list> [player] [reason]` | Manage the blacklist |
+| `/bw history [player]` | View encounter history |
+| `/bw status` | Cache and rate-limit info |
+| `/bw clear` | Clear the stats cache |
+| `/bw reset` | Reset all HUD/runtime state (like a fresh boot) |
+| `/bw disable` / `/bw enable` | Toggle all automatic features |
+| `/bw pearlpreview` | Toggle ender-pearl trajectory preview |
+| `/bw nametags` | Toggle in-world nametags |
+| `/bw maps` | List map layouts learned from played games |
+| `/bw edithud` | Open the drag-and-drop HUD layout editor |
 
-1. **Install required extensions**
-   - [Extension Pack for Java](https://marketplace.visualstudio.com/items?itemName=vscjava.vscode-java-pack)
-   - [Gradle for Java](https://marketplace.visualstudio.com/items?itemName=vscjava.vscode-gradle)
+Additional tactical overlays (pre-game briefing, generator countdown, enemy
+loadout row, final-kill feed, ender-pearl overlay) are toggled in the config GUI
+(Mods → Bedwars Stats → Config).
 
-2. **Open the project**
-   - Open VS Code
-   - Select `File` → `Open Folder`
-   - Select the project root folder
+## Configuration
 
-3. **Configure Java version**
-   - Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on macOS)
-   - Type `Java: Configure Java Runtime`
-   - Ensure JDK 8 is selected for this project
-
-4. **Run the mod**
-   - Open the Gradle sidebar (elephant icon)
-   - Navigate to `Tasks` → `forgegradle` → `runClient`
-   - Double-click to run
-
----
-
-## Troubleshooting
-
-### Missing dependencies
-```bash
-gradlew --refresh-dependencies
-```
-
-### Reset everything
-```bash
-gradlew clean
-gradlew setupDecompWorkspace
-```
-
-### Wrong Java version
-Ensure `JAVA_HOME` points to JDK 8:
-```bash
-# Check current version
-java -version
-
-# Should output something like:
-# openjdk version "1.8.0_xxx"
-```
+Settings persist to `config/bedwarsstats.cfg` and can be edited in-game via the
+Forge config GUI. Encounter history / blacklist / learned maps live under
+`config/bedwarsstats/`.
 
 ---
 
-## Project Structure
+## Building from source
 
-```
-├── src/main/java/          # Your mod source code
-├── src/main/resources/     # Assets and mod metadata
-├── build.gradle            # Build configuration
-├── eclipse/                # Eclipse workspace
-└── run/                    # Game run directory
-```
+**Requires Java JDK 8** — Forge 1.8.9 will not build on newer JDKs.
 
-## Building
-
-To build a distributable JAR:
 ```bash
-# Windows
-gradlew build
-
-# Linux/macOS (ensure Java 8 is active first)
+# macOS — activate Java 8
 export JAVA_HOME=$(/usr/libexec/java_home -v 1.8)
+
+# First-time setup (downloads + decompiles Minecraft; takes a few minutes)
+./gradlew setupDecompWorkspace
+
+# Build the JAR (output in build/libs/)
 ./gradlew build
+
+# Run the client with the mod loaded
+./gradlew runClient
+
+# Run the unit tests
+./gradlew test
 ```
 
-The output JAR will be in `build/libs/`.
+Generate IDE run configs with `./gradlew genIntellijRuns` (IntelliJ) or
+`./gradlew eclipse` (Eclipse).
 
-## Resources
+### Troubleshooting
 
-- [Forge Forums](http://www.minecraftforge.net/forum/)
-- [Forge Documentation](https://mcforge.readthedocs.io/)
-- [#ForgeGradle on EsperNet](irc://irc.esper.net/ForgeGradle)
+- **Wrong Java version:** `java -version` should report `1.8.0_xxx`. Point
+  `JAVA_HOME` at a JDK 8.
+- **Dependency resolution fails:** `./gradlew --refresh-dependencies`.
+- **Clean rebuild:** `./gradlew clean setupDecompWorkspace build`.
+
+## Project layout
+
+```
+src/main/java/com/imshy/bedwars/   # mod source
+  runtime/                         # event handling, game-state, tracking services
+  render/                          # HUD + in-world overlays
+  command/                         # /bw command
+  gui/                             # HUD editor
+src/test/java/                     # JUnit tests (./gradlew test)
+docs/review/                       # code-review / audit reports
+```

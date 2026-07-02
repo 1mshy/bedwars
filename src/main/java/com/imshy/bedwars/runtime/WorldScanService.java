@@ -213,6 +213,16 @@ public class WorldScanService {
         // anchors, so a duplicate anchor never pays for (or double-counts) an item scan.
         Map<BlockPos, Boolean> observedAnchors = new HashMap<BlockPos, Boolean>();
 
+        // Reused mutable probes: the volume scan touches hundreds of thousands of
+        // cells per second, so a fresh immutable BlockPos per cell (plus another via
+        // up()) was pure GC churn. Allocate an immutable BlockPos ONLY on an actual
+        // generator hit (rare) — which the anchor map has to key with anyway.
+        final int px = playerPos.getX();
+        final int py = playerPos.getY();
+        final int pz = playerPos.getZ();
+        BlockPos.MutableBlockPos cell = new BlockPos.MutableBlockPos();
+        BlockPos.MutableBlockPos above = new BlockPos.MutableBlockPos();
+
         int scanRangeSq = scanRange * scanRange;
         for (int x = -scanRange; x <= scanRange; x++) {
             for (int z = -scanRange; z <= scanRange; z++) {
@@ -231,21 +241,25 @@ public class WorldScanService {
                     if (x * x + y * y + z * z > scanRangeSq) {
                         continue;
                     }
-                    BlockPos checkPos = playerPos.add(x, y, z);
-                    if (!mc.theWorld.isBlockLoaded(checkPos)) {
+                    cell.set(px + x, py + y, pz + z);
+                    if (!mc.theWorld.isBlockLoaded(cell)) {
                         continue;
                     }
 
-                    if (!mc.theWorld.isAirBlock(checkPos.up())) {
+                    above.set(px + x, py + y + 1, pz + z);
+                    if (!mc.theWorld.isAirBlock(above)) {
                         continue;
                     }
 
-                    Block block = mc.theWorld.getBlockState(checkPos).getBlock();
+                    Block block = mc.theWorld.getBlockState(cell).getBlock();
 
                     boolean isDiamond = (block == Blocks.diamond_block);
                     boolean isEmerald = (block == Blocks.emerald_block);
 
                     if (isDiamond || isEmerald) {
+                        // Immutable copy for the anchor map key and the cluster BFS —
+                        // the mutable probes keep moving on the next iteration.
+                        BlockPos checkPos = new BlockPos(px + x, py + y, pz + z);
                         // Many maps decorate the spawner pad with adjacent diamond/emerald blocks; collapse
                         // each cluster to a single canonical block (the lex-greatest x,z) so we track one entry.
                         if (isCollapsedClusterMember(mc, checkPos, isDiamond)) {

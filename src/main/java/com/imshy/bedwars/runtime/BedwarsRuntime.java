@@ -4,6 +4,7 @@ import com.imshy.bedwars.AudioCueManager;
 import com.imshy.bedwars.AutoBlacklistManager;
 import com.imshy.bedwars.BedwarsMod;
 import com.imshy.bedwars.BedwarsStats;
+import com.imshy.bedwars.ClientThread;
 import com.imshy.bedwars.HypixelAPI;
 import com.imshy.bedwars.HypixelMessages;
 import com.imshy.bedwars.ModConfig;
@@ -20,7 +21,10 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.event.ClickEvent;
+import net.minecraft.event.HoverEvent;
 import net.minecraft.util.ChatComponentText;
+import net.minecraft.util.ChatStyle;
 import net.minecraft.util.EnumChatFormatting;
 import net.minecraftforge.client.event.ClientChatReceivedEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
@@ -101,6 +105,9 @@ public class BedwarsRuntime {
      */
     private int hudEditorOpenTicks;
 
+    /** One-time (per session) first-run prompt shown when no API key is configured. */
+    private boolean apiKeyPromptShown;
+
     public BedwarsRuntime() {
         this.state = new RuntimeState();
         this.teamDangerAnalyzer = new TeamDangerAnalyzer(state);
@@ -146,6 +153,46 @@ public class BedwarsRuntime {
 
     public void clearRecentJoins() {
         lobbyTrackerService.clearRecentJoins();
+    }
+
+    /**
+     * Clear the tab-list fetch in-flight guard. Called by {@code /bw clear} so
+     * that cleared players (whose cached stats were just dropped) are eligible
+     * for a fresh tab-scan fetch instead of staying suppressed. Client-thread only.
+     */
+    public void clearPendingTabListFetches() {
+        state.pendingTabListFetches.clear();
+    }
+
+    /**
+     * First-run onboarding: once per session, when the player is in a world but
+     * no Hypixel API key is configured (so every stat feature silently does
+     * nothing), print a one-time clickable prompt to the developer dashboard.
+     * Runs on the client thread (onClientTick).
+     */
+    private void maybeShowApiKeyPrompt(Minecraft mc) {
+        if (apiKeyPromptShown || mc.thePlayer == null || HypixelAPI.hasApiKey()) {
+            return;
+        }
+        apiKeyPromptShown = true;
+
+        ChatComponentText msg = new ChatComponentText(
+                ClientThread.PREFIX + EnumChatFormatting.YELLOW
+                        + "No Hypixel API key set — stat lookups are off. ");
+
+        ChatComponentText link = new ChatComponentText(
+                EnumChatFormatting.AQUA.toString() + EnumChatFormatting.UNDERLINE + "Click to get a key");
+        ChatStyle linkStyle = new ChatStyle();
+        linkStyle.setChatClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL,
+                "https://developer.hypixel.net/dashboard"));
+        linkStyle.setChatHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
+                new ChatComponentText("Open the Hypixel developer dashboard")));
+        link.setChatStyle(linkStyle);
+        msg.appendSibling(link);
+        msg.appendSibling(new ChatComponentText(
+                EnumChatFormatting.GRAY + ", then run " + EnumChatFormatting.WHITE + "/bw setkey <key>"));
+
+        mc.thePlayer.addChatMessage(msg);
     }
 
     public MapLearningService getMapLearningService() {
@@ -646,6 +693,8 @@ public class BedwarsRuntime {
         state.clientTickCounter++;
 
         Minecraft mc = Minecraft.getMinecraft();
+
+        maybeShowApiKeyPrompt(mc);
 
         // Deferred /bw edithud open: wait for the chat screen to close.
         if (hudEditorOpenTicks > 0) {

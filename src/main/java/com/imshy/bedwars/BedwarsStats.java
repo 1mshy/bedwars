@@ -30,6 +30,27 @@ public class BedwarsStats {
         MONTHLY
     }
 
+    /**
+     * The four Bedwars queue modes. The {@code prefix} is Hypixel's per-mode
+     * stat infix (e.g. {@code eight_one_final_kills_bedwars}). The ones→eight_one,
+     * twos→eight_two, threes→four_three, fours→four_four mapping matches the
+     * {@code /play} commands in {@code WorldScanService.GAME_MODE_COMMANDS}.
+     */
+    public enum Mode {
+        SOLO("eight_one", "Solo"),
+        DOUBLES("eight_two", "Doubles"),
+        THREES("four_three", "3s"),
+        FOURS("four_four", "4s");
+
+        public final String prefix;
+        public final String label;
+
+        Mode(String prefix, String label) {
+            this.prefix = prefix;
+            this.label = label;
+        }
+    }
+
     private final String playerName;
     private final String uuid;
 
@@ -58,6 +79,13 @@ public class BedwarsStats {
     private int weeklyLosses = 0;
     private double weeklyFkdr = 0.0;
     private double weeklyWlr = 0.0;
+
+    // Per-mode career counters, indexed by Mode.ordinal() (SOLO/DOUBLES/THREES/FOURS).
+    private final int[] modeFinalKills = new int[Mode.values().length];
+    private final int[] modeFinalDeaths = new int[Mode.values().length];
+    private final int[] modeWins = new int[Mode.values().length];
+    private final int[] modeLosses = new int[Mode.values().length];
+    private final double[] modeFkdr = new double[Mode.values().length];
 
     private boolean loaded = false;
     private boolean error = false;
@@ -166,6 +194,17 @@ public class BedwarsStats {
             this.weeklyFkdr = computeRatio(weeklyFinalKills, weeklyFinalDeaths);
             this.weeklyWlr = computeRatio(weeklyWins, weeklyLosses);
 
+            // Per-mode career splits (solo/doubles/3s/4s). Lets a solos main be
+            // told apart from a fours stacker sitting at the same star/overall FKDR.
+            for (Mode mode : Mode.values()) {
+                int i = mode.ordinal();
+                modeFinalKills[i] = getInt(bw, mode.prefix + "_final_kills_bedwars");
+                modeFinalDeaths[i] = getInt(bw, mode.prefix + "_final_deaths_bedwars");
+                modeWins[i] = getInt(bw, mode.prefix + "_wins_bedwars");
+                modeLosses[i] = getInt(bw, mode.prefix + "_losses_bedwars");
+                modeFkdr[i] = computeRatio(modeFinalKills[i], modeFinalDeaths[i]);
+            }
+
             // All zero after a successful parse => Bedwars section exists but
             // is empty — matches a nicked account.
             if (stars == 0 && finalKills == 0 && finalDeaths == 0
@@ -267,6 +306,28 @@ public class BedwarsStats {
      * Determine threat level based on stats.
      */
     public ThreatLevel getThreatLevel() {
+        return threatFor(fkdr);
+    }
+
+    /**
+     * Threat tier for the player in a specific mode: overall stars (account-wide)
+     * combined with that mode's FKDR. Used where the mode is known for certain
+     * (the /bw lookup breakdown). The global {@link #getThreatLevel()} stays on
+     * overall FKDR \u2014 meaningful lobby-mode tiering would need current-mode
+     * detection, which the mod does not have yet.
+     */
+    public ThreatLevel getModeThreatLevel(Mode mode) {
+        return threatFor(modeFkdr[mode.ordinal()]);
+    }
+
+    /**
+     * Shared tiering. Thresholds are configurable via ModConfig. The config keys
+     * are named for the tier they *open* into (the "high" star/FKDR threshold is
+     * the EXTREME boundary, "medium" the HIGH boundary, "low" the MEDIUM boundary).
+     * Defaults match the previous hardcoded literals (500/300/100 stars,
+     * 6.0/4.0/2.0 FKDR).
+     */
+    private ThreatLevel threatFor(double fkdrValue) {
         if (error || !loaded)
             return ThreatLevel.UNKNOWN;
 
@@ -274,24 +335,29 @@ public class BedwarsStats {
             return ThreatLevel.NICKED;
         }
 
-        // Thresholds are configurable via ModConfig. The config keys are named for the
-        // tier they *open* into (the "high" star/FKDR threshold is the EXTREME boundary,
-        // "medium" the HIGH boundary, "low" the MEDIUM boundary). Defaults match the
-        // previous hardcoded literals (500/300/100 stars, 6.0/4.0/2.0 FKDR).
-        if (stars >= ModConfig.getHighStarThreshold() || fkdr >= ModConfig.getHighFkdrThreshold()) {
+        if (stars >= ModConfig.getHighStarThreshold() || fkdrValue >= ModConfig.getHighFkdrThreshold()) {
             return ThreatLevel.EXTREME;
         }
-        if (stars >= ModConfig.getMediumStarThreshold() || fkdr >= ModConfig.getMediumFkdrThreshold()) {
+        if (stars >= ModConfig.getMediumStarThreshold() || fkdrValue >= ModConfig.getMediumFkdrThreshold()) {
             return ThreatLevel.HIGH;
         }
-        if (stars >= ModConfig.getLowStarThreshold() || fkdr >= ModConfig.getLowFkdrThreshold()) {
+        if (stars >= ModConfig.getLowStarThreshold() || fkdrValue >= ModConfig.getLowFkdrThreshold()) {
             return ThreatLevel.MEDIUM;
         }
         return ThreatLevel.LOW;
     }
 
     public String getThreatColor() {
-        switch (getThreatLevel()) {
+        return threatColorCode(getThreatLevel());
+    }
+
+    public String getModeThreatColor(Mode mode) {
+        return threatColorCode(getModeThreatLevel(mode));
+    }
+
+    /** Format code for a threat level (shared by overall and per-mode coloring). */
+    public static String threatColorCode(ThreatLevel level) {
+        switch (level) {
             case EXTREME:
                 return "\u00A74"; // Dark Red
             case HIGH:
@@ -482,6 +548,50 @@ public class BedwarsStats {
 
     public double getWeeklyWlr() {
         return weeklyWlr;
+    }
+
+    // --- Per-mode career splits (solo/doubles/3s/4s) ---
+
+    public double getModeFkdr(Mode mode) {
+        return modeFkdr[mode.ordinal()];
+    }
+
+    public int getModeFinalKills(Mode mode) {
+        return modeFinalKills[mode.ordinal()];
+    }
+
+    public int getModeFinalDeaths(Mode mode) {
+        return modeFinalDeaths[mode.ordinal()];
+    }
+
+    public int getModeWins(Mode mode) {
+        return modeWins[mode.ordinal()];
+    }
+
+    public int getModeLosses(Mode mode) {
+        return modeLosses[mode.ordinal()];
+    }
+
+    /** Final-kill + final-death volume in a mode — a cheap "has the player played this mode" proxy. */
+    public int getModeGames(Mode mode) {
+        return modeFinalKills[mode.ordinal()] + modeFinalDeaths[mode.ordinal()];
+    }
+
+    /**
+     * The mode the player has played most (by final kill+death volume), or null
+     * if they have no per-mode history (nick / brand-new / all-zero).
+     */
+    public Mode getPrimaryMode() {
+        Mode best = null;
+        int bestVolume = 0;
+        for (Mode mode : Mode.values()) {
+            int volume = getModeGames(mode);
+            if (volume > bestVolume) {
+                bestVolume = volume;
+                best = mode;
+            }
+        }
+        return best;
     }
 
     public boolean isLoaded() {

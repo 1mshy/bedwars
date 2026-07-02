@@ -2,6 +2,7 @@ package com.imshy.bedwars.runtime;
 
 import com.imshy.bedwars.AudioCueManager;
 import com.imshy.bedwars.BedwarsStats;
+import com.imshy.bedwars.ClientThread;
 import com.imshy.bedwars.HypixelAPI;
 import com.imshy.bedwars.ModConfig;
 import com.imshy.bedwars.PlayerDatabase;
@@ -43,6 +44,9 @@ public class LobbyTrackerService {
         state.lastGeneratorScan = 0;
         state.chatDetectedPlayers.clear();
         state.chatDetectedStartTime = 0;
+        // Fresh in-flight guard for the new match: a name left behind by a
+        // permanent error (bad key) in a previous game must not stay suppressed.
+        state.pendingTabListFetches.clear();
 
         // Reset lobby bait state
         state.lobbyBaitActive = false;
@@ -215,20 +219,24 @@ public class LobbyTrackerService {
             state.pendingTabListFetches.add(tabName);
             HypixelAPI.StatsCallback callback = new HypixelAPI.StatsCallback() {
                 @Override
-                public void onStatsLoaded(BedwarsStats stats) { }
+                public void onStatsLoaded(BedwarsStats stats) {
+                    // Drop the in-flight guard once resolved. The cache gate above
+                    // (getCachedStats != null) suppresses refetch while stats are
+                    // fresh; once the 60-min TTL expires the name becomes eligible
+                    // again — without this it stayed suppressed for the session.
+                    // pendingTabListFetches is client-thread-only state.
+                    ClientThread.run(() -> state.pendingTabListFetches.remove(tabName));
+                }
 
                 @Override
                 public void onError(String error) {
                     // Make the name eligible for a refetch, but only after transient
                     // failures (local/Hypixel rate limit, timeouts) — permanent ones
                     // like a bad API key would otherwise retry on every scan.
-                    // pendingTabListFetches is client-thread-only state, so marshal
-                    // the removal back like the chat path does.
                     if (!HypixelAPI.isRetryableError(error)) {
                         return;
                     }
-                    Minecraft.getMinecraft().addScheduledTask(
-                            () -> state.pendingTabListFetches.remove(tabName));
+                    ClientThread.run(() -> state.pendingTabListFetches.remove(tabName));
                 }
             };
 

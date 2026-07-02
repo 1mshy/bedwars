@@ -1,6 +1,7 @@
 package com.imshy.bedwars.command;
 
 import com.imshy.bedwars.BedwarsStats;
+import com.imshy.bedwars.ClientThread;
 import com.imshy.bedwars.HypixelAPI;
 import com.imshy.bedwars.ModConfig;
 import com.imshy.bedwars.PlayerDatabase;
@@ -77,7 +78,8 @@ public class BedwarsCommand extends CommandBase {
                 return;
             }
             ModConfig.setApiKey(args[1]);
-            sendMessage(sender, EnumChatFormatting.GREEN + "API key set and saved!");
+            sendMessage(sender, EnumChatFormatting.GREEN + "API key saved. Validating...");
+            validateApiKey();
 
         } else if (subCommand.equals("lookup")) {
             if (args.length < 2) {
@@ -87,58 +89,26 @@ public class BedwarsCommand extends CommandBase {
             final String targetPlayer = args[1];
             sendMessage(sender, EnumChatFormatting.YELLOW + "Looking up " + targetPlayer + "...");
 
-            HypixelAPI.fetchStatsAsync(targetPlayer, new HypixelAPI.StatsCallback() {
+            HypixelAPI.fetchStatsAsync(targetPlayer, ClientThread.marshal(new HypixelAPI.StatsCallback() {
                 @Override
                 public void onStatsLoaded(BedwarsStats stats) {
-                    // May fire on the HypixelAPI executor pool; build the message here
-                    // (pure CPU) but defer the chat-GUI mutation to the client thread.
-                    StringBuilder sb = new StringBuilder();
-                    sb.append(EnumChatFormatting.GOLD).append("=== ").append(targetPlayer).append(" ===\n");
-                    sb.append(EnumChatFormatting.WHITE).append("Stars: ")
-                      .append(EnumChatFormatting.YELLOW).append(stats.getStars()).append("\n");
-                    sb.append(EnumChatFormatting.WHITE).append("FKDR: ")
-                      .append(EnumChatFormatting.YELLOW).append(BedwarsStats.formatRatio(stats.getFkdr()))
-                      .append(" (").append(stats.getFinalKills()).append("/").append(stats.getFinalDeaths()).append(")\n");
-
-                    BedwarsStats.RecentWindow window = stats.getRecentWindow();
-                    if (window != BedwarsStats.RecentWindow.NONE) {
-                        double recent = stats.getRecentFkdr();
-                        double delta = stats.getRecentFkdrDelta();
-                        String deltaText = formatDelta(delta);
-                        sb.append(EnumChatFormatting.WHITE).append("Recent FKDR: ")
-                          .append(EnumChatFormatting.YELLOW).append(BedwarsStats.formatRatio(recent))
-                          .append(EnumChatFormatting.GRAY).append(" [").append(stats.getRecentWindowLabel()).append("] ")
-                          .append(deltaText).append("\n");
+                    // marshal(): this whole body runs on the client thread, so it is
+                    // safe to touch the chat GUI directly.
+                    Minecraft client = Minecraft.getMinecraft();
+                    if (client.thePlayer != null) {
+                        client.thePlayer.addChatMessage(new ChatComponentText(buildLookupReport(targetPlayer, stats)));
                     }
-
-                    sb.append(EnumChatFormatting.WHITE).append("WLR: ")
-                      .append(EnumChatFormatting.YELLOW).append(BedwarsStats.formatRatio(stats.getWlr()))
-                      .append(" (").append(stats.getWins()).append("/").append(stats.getLosses()).append(")\n");
-                    sb.append(EnumChatFormatting.WHITE).append("Beds: ")
-                      .append(EnumChatFormatting.YELLOW).append(stats.getBedsBroken()).append("\n");
-                    sb.append(EnumChatFormatting.WHITE).append("Threat: ")
-                      .append(stats.getThreatColor()).append(stats.getThreatLevel().name());
-
-                    final String message = sb.toString();
-                    Minecraft.getMinecraft().addScheduledTask(() -> {
-                        Minecraft client = Minecraft.getMinecraft();
-                        if (client.thePlayer != null) {
-                            client.thePlayer.addChatMessage(new ChatComponentText(message));
-                        }
-                    });
                 }
 
                 @Override
                 public void onError(String error) {
-                    Minecraft.getMinecraft().addScheduledTask(() -> {
-                        Minecraft client = Minecraft.getMinecraft();
-                        if (client.thePlayer != null) {
-                            client.thePlayer.addChatMessage(new ChatComponentText(
-                                    EnumChatFormatting.RED + "Error: " + error));
-                        }
-                    });
+                    Minecraft client = Minecraft.getMinecraft();
+                    if (client.thePlayer != null) {
+                        client.thePlayer.addChatMessage(new ChatComponentText(
+                                EnumChatFormatting.RED + "Error: " + error));
+                    }
                 }
-            }, HypixelAPI.FetchPriority.EXPLICIT);
+            }), HypixelAPI.FetchPriority.EXPLICIT);
 
         } else if (subCommand.equals("all")) {
             if (!HypixelAPI.hasApiKey()) {
@@ -166,34 +136,31 @@ public class BedwarsCommand extends CommandBase {
                 final String playerUuid = player.getUniqueID().toString();
                 count++;
 
-                HypixelAPI.fetchStatsWithUuid(playerName, playerUuid, new HypixelAPI.StatsCallback() {
+                HypixelAPI.fetchStatsWithUuid(playerName, playerUuid, ClientThread.marshal(new HypixelAPI.StatsCallback() {
 
                     @Override
                     public void onStatsLoaded(BedwarsStats stats) {
-                        final String message = stats.getThreatColor() + playerName + " " +
-                                EnumChatFormatting.WHITE + "[" + stats.getStars() + "⭐] " +
-                                EnumChatFormatting.YELLOW + String.format("%.2f", stats.getFkdr())
-                                + " FKDR " +
-                                EnumChatFormatting.GRAY + "(" + stats.getThreatLevel().name() + ")";
-                        Minecraft.getMinecraft().addScheduledTask(() -> {
-                            Minecraft client = Minecraft.getMinecraft();
-                            if (client.thePlayer != null) {
-                                client.thePlayer.addChatMessage(new ChatComponentText(message));
-                            }
-                        });
+                        // marshal(): on the client thread — safe to touch the chat GUI.
+                        Minecraft client = Minecraft.getMinecraft();
+                        if (client.thePlayer != null) {
+                            client.thePlayer.addChatMessage(new ChatComponentText(
+                                    stats.getThreatColor() + playerName + " " +
+                                    EnumChatFormatting.WHITE + "[" + stats.getStars() + "⭐] " +
+                                    EnumChatFormatting.YELLOW + BedwarsStats.formatRatio(stats.getFkdr())
+                                    + " FKDR " +
+                                    EnumChatFormatting.GRAY + "(" + stats.getThreatLevel().name() + ")"));
+                        }
                     }
 
                     @Override
                     public void onError(String error) {
-                        Minecraft.getMinecraft().addScheduledTask(() -> {
-                            Minecraft client = Minecraft.getMinecraft();
-                            if (client.thePlayer != null) {
-                                client.thePlayer.addChatMessage(new ChatComponentText(
-                                        EnumChatFormatting.RED + playerName + ": " + error));
-                            }
-                        });
+                        Minecraft client = Minecraft.getMinecraft();
+                        if (client.thePlayer != null) {
+                            client.thePlayer.addChatMessage(new ChatComponentText(
+                                    EnumChatFormatting.RED + playerName + ": " + error));
+                        }
                     }
-                }, HypixelAPI.FetchPriority.EXPLICIT);
+                }), HypixelAPI.FetchPriority.EXPLICIT);
             }
 
             if (count == 0) {
@@ -231,6 +198,7 @@ public class BedwarsCommand extends CommandBase {
         } else if (subCommand.equals("clear")) {
             HypixelAPI.clearCache();
             runtime.clearRecentJoins();
+            runtime.clearPendingTabListFetches();
             sendMessage(sender, EnumChatFormatting.GREEN + "Cache cleared!");
 
         } else if (subCommand.equals("reset")) {
@@ -665,6 +633,103 @@ public class BedwarsCommand extends CommandBase {
             sb.append(args[i]);
         }
         return sb.toString();
+    }
+
+    /**
+     * Confirm a freshly-set API key actually works with one real lookup of the
+     * local player. A 403 means the key was rejected; anything else that returns
+     * means it is accepted. The report string is built off-thread (pure CPU) and
+     * {@link ClientThread#modChat} marshals the chat send.
+     */
+    private static void validateApiKey() {
+        Minecraft mc = Minecraft.getMinecraft();
+        final String selfName = mc.thePlayer != null ? mc.thePlayer.getName() : null;
+        if (selfName == null) {
+            return;
+        }
+        HypixelAPI.fetchStatsAsync(selfName, new HypixelAPI.StatsCallback() {
+            @Override
+            public void onStatsLoaded(BedwarsStats stats) {
+                ClientThread.modChat(EnumChatFormatting.GREEN + "API key is valid ✓");
+            }
+
+            @Override
+            public void onError(String error) {
+                if (error != null && error.contains("403")) {
+                    ClientThread.modChat(EnumChatFormatting.RED
+                            + "API key rejected (403). Get a valid key at developer.hypixel.net/dashboard.");
+                } else {
+                    ClientThread.modChat(EnumChatFormatting.YELLOW
+                            + "Key saved, but validation couldn't finish: " + error);
+                }
+            }
+        }, HypixelAPI.FetchPriority.EXPLICIT);
+    }
+
+    /** Full multi-line /bw lookup report, including the per-mode breakdown. */
+    private static String buildLookupReport(String name, BedwarsStats stats) {
+        if (stats.getThreatLevel() == BedwarsStats.ThreatLevel.NICKED) {
+            return EnumChatFormatting.GOLD + "=== " + name + " ===\n"
+                    + EnumChatFormatting.LIGHT_PURPLE + "Likely NICK — no Bedwars stats found.";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(EnumChatFormatting.GOLD).append("=== ").append(name).append(" ===\n");
+        sb.append(EnumChatFormatting.WHITE).append("Stars: ")
+          .append(EnumChatFormatting.YELLOW).append(stats.getStars()).append("\n");
+        sb.append(EnumChatFormatting.WHITE).append("FKDR: ")
+          .append(EnumChatFormatting.YELLOW).append(BedwarsStats.formatRatio(stats.getFkdr()))
+          .append(" (").append(stats.getFinalKills()).append("/").append(stats.getFinalDeaths()).append(")\n");
+
+        BedwarsStats.RecentWindow window = stats.getRecentWindow();
+        if (window != BedwarsStats.RecentWindow.NONE) {
+            double recent = stats.getRecentFkdr();
+            double delta = stats.getRecentFkdrDelta();
+            String deltaText = formatDelta(delta);
+            sb.append(EnumChatFormatting.WHITE).append("Recent FKDR: ")
+              .append(EnumChatFormatting.YELLOW).append(BedwarsStats.formatRatio(recent))
+              .append(EnumChatFormatting.GRAY).append(" [").append(stats.getRecentWindowLabel()).append("] ")
+              .append(deltaText).append("\n");
+        }
+
+        sb.append(EnumChatFormatting.WHITE).append("WLR: ")
+          .append(EnumChatFormatting.YELLOW).append(BedwarsStats.formatRatio(stats.getWlr()))
+          .append(" (").append(stats.getWins()).append("/").append(stats.getLosses()).append(")\n");
+        sb.append(EnumChatFormatting.WHITE).append("Beds: ")
+          .append(EnumChatFormatting.YELLOW).append(stats.getBedsBroken()).append("\n");
+
+        appendModeBreakdown(sb, stats);
+
+        sb.append(EnumChatFormatting.WHITE).append("Threat: ")
+          .append(stats.getThreatColor()).append(stats.getThreatLevel().name());
+        return sb.toString();
+    }
+
+    /**
+     * Per-mode FKDR breakdown, each row colored by that mode's OWN threat tier so
+     * a fours stacker padding a solos lobby is obvious at a glance. Modes with no
+     * games are omitted; the player's most-played mode is starred.
+     */
+    private static void appendModeBreakdown(StringBuilder sb, BedwarsStats stats) {
+        BedwarsStats.Mode primary = stats.getPrimaryMode();
+        if (primary == null) {
+            return;
+        }
+        sb.append(EnumChatFormatting.GRAY).append("Modes:\n");
+        for (BedwarsStats.Mode mode : BedwarsStats.Mode.values()) {
+            if (stats.getModeGames(mode) == 0) {
+                continue;
+            }
+            sb.append(EnumChatFormatting.GRAY).append("  ").append(mode.label).append(": ")
+              .append(stats.getModeThreatColor(mode)).append(BedwarsStats.formatRatio(stats.getModeFkdr(mode)))
+              .append(EnumChatFormatting.DARK_GRAY).append(" (").append(stats.getModeFinalKills(mode))
+              .append("/").append(stats.getModeFinalDeaths(mode)).append(") ")
+              .append(EnumChatFormatting.GRAY).append(stats.getModeWins(mode)).append("W");
+            if (mode == primary) {
+                sb.append(EnumChatFormatting.GOLD).append(" ★");
+            }
+            sb.append("\n");
+        }
     }
 
     private void sendMessage(ICommandSender sender, String message) {
