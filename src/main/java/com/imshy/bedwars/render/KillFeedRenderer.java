@@ -3,7 +3,10 @@ package com.imshy.bedwars.render;
 import com.imshy.bedwars.BedwarsStats;
 import com.imshy.bedwars.HypixelAPI;
 import com.imshy.bedwars.ModConfig;
+import com.imshy.bedwars.runtime.FinalKillLedger;
 import com.imshy.bedwars.runtime.KillFeedTracker;
+import com.imshy.bedwars.runtime.RespawnTracker;
+import com.imshy.bedwars.runtime.ScoreboardGameStateDetector;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
@@ -42,6 +45,13 @@ public class KillFeedRenderer {
             new java.util.HashMap<KillFeedTracker.Entry, CachedLine>();
 
     public void render(ScaledResolution resolution, Minecraft mc, KillFeedTracker tracker) {
+        render(resolution, mc, tracker, null, null, null);
+    }
+
+    public void render(ScaledResolution resolution, Minecraft mc, KillFeedTracker tracker,
+            RespawnTracker respawnTracker,
+            java.util.Map<String, ScoreboardGameStateDetector.TeamStatus> teamStatuses,
+            FinalKillLedger finalKillLedger) {
         if (!ModConfig.isModEnabled() || !ModConfig.isKillfeedEnabled()) {
             return;
         }
@@ -49,7 +59,8 @@ public class KillFeedRenderer {
             return;
         }
 
-        List<KillFeedTracker.Entry> entries = tracker.getActiveEntries(System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        List<KillFeedTracker.Entry> entries = tracker.getActiveEntries(now);
         if (entries.isEmpty()) {
             return;
         }
@@ -77,10 +88,22 @@ public class KillFeedRenderer {
                 cached = new CachedLine(stats, line, fr.getStringWidth(line));
                 lineCache.put(entry, cached);
             }
-            lines.add(cached.line);
-            widths[index++] = cached.width;
-            if (cached.width > maxWidth) {
-                maxWidth = cached.width;
+            // The respawn countdown changes every second, so it is appended at
+            // draw time and deliberately kept out of the memoized line cache.
+            String suffix = buildRespawnSuffix(entry, respawnTracker, teamStatuses, now);
+            // Same for the carry badge — the killer's tally grows as the match runs.
+            if (finalKillLedger != null && entry.isFinal && entry.killerName != null
+                    && ModConfig.isCarryBadgesEnabled()) {
+                int finals = finalKillLedger.getKillerFinals(entry.killerName);
+                if (finals >= 2) {
+                    suffix = " " + EnumChatFormatting.GOLD + "⚔" + finals + suffix;
+                }
+            }
+            int width = cached.width + (suffix.isEmpty() ? 0 : fr.getStringWidth(suffix));
+            lines.add(cached.line + suffix);
+            widths[index++] = width;
+            if (width > maxWidth) {
+                maxWidth = width;
             }
         }
 
@@ -124,6 +147,45 @@ public class KillFeedRenderer {
         return threatColor + entry.killerName + " "
                 + EnumChatFormatting.GRAY + "killed "
                 + teamColor + entry.victimName;
+    }
+
+    /**
+     * Respawn-state suffix, computed per frame: final kills get a dark-red
+     * cross (the victim never returns), regular deaths get an estimated
+     * "~Ns" countdown while their respawn timer runs. When the sidebar says
+     * the victim's team has no bed (or is eliminated), the countdown is
+     * replaced by the cross — a bed-less victim isn't coming back.
+     */
+    private static String buildRespawnSuffix(KillFeedTracker.Entry entry,
+            RespawnTracker respawnTracker,
+            java.util.Map<String, ScoreboardGameStateDetector.TeamStatus> teamStatuses,
+            long nowMs) {
+        if (!ModConfig.isRespawnCountdownEnabled()) {
+            return "";
+        }
+        if (entry.isFinal) {
+            return " " + EnumChatFormatting.DARK_RED + "✘";
+        }
+        if (respawnTracker == null) {
+            return "";
+        }
+        int seconds = respawnTracker.getRemainingSeconds(entry.victimName, nowMs);
+        if (seconds <= 0) {
+            return "";
+        }
+        // Gray (§7) is also the resolver's unresolved-team fallback, so it
+        // cannot be trusted as team identity — skip the bed-status cross-check
+        // for it rather than misclassify unresolved victims as the Gray team.
+        if (teamStatuses != null && entry.victimTeamColorCode != null
+                && !entry.victimTeamColorCode.isEmpty()
+                && !entry.victimTeamColorCode.equals(EnumChatFormatting.GRAY.toString())) {
+            for (ScoreboardGameStateDetector.TeamStatus ts : teamStatuses.values()) {
+                if (entry.victimTeamColorCode.equals(ts.colorCode) && ts.statusType != 'B') {
+                    return " " + EnumChatFormatting.DARK_RED + "✘";
+                }
+            }
+        }
+        return " " + EnumChatFormatting.YELLOW + "~" + seconds + "s";
     }
 
     /**

@@ -28,6 +28,12 @@ final class RuntimeState {
     /** Latest parsed snapshot of all sidebar team rows, updated each scoreboard-poll tick. */
     final java.util.Map<String, ScoreboardGameStateDetector.TeamStatus> scoreboardTeamStatuses =
             new java.util.LinkedHashMap<String, ScoreboardGameStateDetector.TeamStatus>();
+    /** Server-exact upcoming event from the sidebar ("Diamond II in 3:45"), null when absent. */
+    SidebarEventClock.NextEvent nextSidebarEvent = null;
+    /** Lobby difficulty aggregate over cached stats, refreshed on a 20-tick cadence. */
+    LobbyAnalytics.LobbySummary lobbySummary = null;
+    /** Generator-tier cue labels already fired this match (one-shot per label). */
+    final Set<String> generatorCueFired = new HashSet<String>();
     /**
      * Weakly-held reference to the world we were last seen playing in. Used by
      * onEntityJoinWorld to distinguish a true server change (different World object)
@@ -114,6 +120,9 @@ final class RuntimeState {
         clientTickCounter = 0;
         lastScoreboardPhaseScanTick = 0;
         scoreboardTeamStatuses.clear();
+        nextSidebarEvent = null;
+        lobbySummary = null;
+        generatorCueFired.clear();
         lastTrackedWorld = null;
 
         // Pre-game state

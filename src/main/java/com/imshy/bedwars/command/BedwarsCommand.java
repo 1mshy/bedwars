@@ -8,6 +8,7 @@ import com.imshy.bedwars.PlayerDatabase;
 import com.imshy.bedwars.runtime.BedwarsRuntime;
 import com.imshy.bedwars.runtime.GamePhase;
 import com.imshy.bedwars.runtime.MapLearningService;
+import com.imshy.bedwars.runtime.SafeSubsystem;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.command.CommandBase;
@@ -34,7 +35,7 @@ public class BedwarsCommand extends CommandBase {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/bw <setkey|lookup|all|info|autoplay|afk|rejoin|blacklist|history|status|clear|reset|disable|enable|pearlpreview|nametags|maps|edithud> [args]";
+        return "/bw <setkey|lookup|all|info|autoplay|afk|rejoin|blacklist|history|status|health|clear|reset|disable|enable|pearlpreview|nametags|maps|edithud> [args]";
     }
 
     @Override
@@ -56,6 +57,7 @@ public class BedwarsCommand extends CommandBase {
             sendMessage(sender, "/bw blacklist <add|remove|list> [player] [reason] - Manage blacklist");
             sendMessage(sender, "/bw history [player] - View encounter history");
             sendMessage(sender, "/bw status - Show cache and rate limit info");
+            sendMessage(sender, "/bw health [rearm] - Show or re-arm crash-shielded subsystems");
             sendMessage(sender, "/bw clear - Clear the stats cache");
             sendMessage(sender, "/bw reset - Reset all HUD and runtime state (like a fresh boot)");
             sendMessage(sender, "/bw disable - Disable all automatic features (stat lookup, alerts, HUD, audio)");
@@ -195,6 +197,26 @@ public class BedwarsCommand extends CommandBase {
                 sendMessage(sender, "Predicted first rush: " + etaText + " | Map: " + runtime.getLastDetectedMapName());
             }
 
+        } else if (subCommand.equals("health")) {
+            if (args.length >= 2 && args[1].equalsIgnoreCase("rearm")) {
+                int rearmed = SafeSubsystem.rearmAll();
+                sendMessage(sender, EnumChatFormatting.GREEN + "Re-armed " + rearmed
+                        + " quarantined subsystem(s); all failure counters reset.");
+            } else {
+                sendMessage(sender, EnumChatFormatting.GOLD + "=== Subsystem Health ===");
+                List<String> rows = SafeSubsystem.healthReport();
+                if (rows.isEmpty()) {
+                    sendMessage(sender, EnumChatFormatting.GRAY
+                            + "No subsystems have run yet this session.");
+                }
+                for (String row : rows) {
+                    boolean bad = row.contains("QUARANTINED");
+                    sendMessage(sender, (bad ? EnumChatFormatting.RED : EnumChatFormatting.GREEN) + row);
+                }
+                sendMessage(sender, EnumChatFormatting.GRAY
+                        + "Use /bw health rearm to re-enable quarantined subsystems.");
+            }
+
         } else if (subCommand.equals("clear")) {
             HypixelAPI.clearCache();
             runtime.clearRecentJoins();
@@ -274,7 +296,7 @@ public class BedwarsCommand extends CommandBase {
             return getListOfStringsMatchingLastWord(args, "setkey", "lookup", "all", "info", "autoplay",
                     "afk", "rejoin", "blacklist", "history",
                     "status", "clear", "reset", "disable", "enable", "pearlpreview", "nametags", "maps",
-                    "edithud");
+                    "edithud", "health");
         }
 
         if (args.length == 2) {

@@ -22,6 +22,16 @@ public class TrackedFireball {
     public double closestDistance;
     public double ticksToClosest;
 
+    // Time until the projected impact in seconds (straight-line, 1 motion step
+    // per tick). -1 when the ray-trace found no block within trace range.
+    public double secondsToImpact = -1.0;
+    // Distance from the projected impact to the nearest own-bed block, -1 when
+    // unknown (no bed located or no valid impact).
+    public double bedDistance = -1.0;
+    // True when the projected impact lands within the bed alert radius — the
+    // fireball is aimed at the bed defense, not the player.
+    public boolean bedThreatening;
+
     public boolean threatening;
     public long firstSeenMs;
     public long lastSeenMs;

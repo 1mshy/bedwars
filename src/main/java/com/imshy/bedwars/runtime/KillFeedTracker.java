@@ -28,12 +28,16 @@ public class KillFeedTracker {
         /** Victim team color code (e.g. "§c"), empty when unresolved. */
         public final String victimTeamColorCode;
         public final long timestampMs;
+        /** True for FINAL KILL lines — the victim never respawns. */
+        public final boolean isFinal;
 
-        Entry(String victimName, String killerName, String victimTeamColorCode, long timestampMs) {
+        Entry(String victimName, String killerName, String victimTeamColorCode, long timestampMs,
+                boolean isFinal) {
             this.victimName = victimName;
             this.killerName = killerName;
             this.victimTeamColorCode = victimTeamColorCode;
             this.timestampMs = timestampMs;
+            this.isFinal = isFinal;
         }
 
         public boolean isExpired(long nowMs) {
@@ -44,13 +48,19 @@ public class KillFeedTracker {
     // Newest entries at the head; timestamps are expected to be monotonic.
     private final Deque<Entry> entries = new ArrayDeque<Entry>();
 
-    /** Records an event. Null/empty victims are ignored; killer may be null. */
+    /** Records a non-final event. Null/empty victims are ignored; killer may be null. */
     public void addEntry(String victimName, String killerName, String victimTeamColorCode, long nowMs) {
+        addEntry(victimName, killerName, victimTeamColorCode, nowMs, false);
+    }
+
+    /** Records an event. Null/empty victims are ignored; killer may be null. */
+    public void addEntry(String victimName, String killerName, String victimTeamColorCode, long nowMs,
+            boolean isFinal) {
         if (victimName == null || victimName.isEmpty()) {
             return;
         }
         entries.addFirst(new Entry(victimName, killerName,
-                victimTeamColorCode == null ? "" : victimTeamColorCode, nowMs));
+                victimTeamColorCode == null ? "" : victimTeamColorCode, nowMs, isFinal));
         while (entries.size() > MAX_ENTRIES) {
             entries.removeLast();
         }

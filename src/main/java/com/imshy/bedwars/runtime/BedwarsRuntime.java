@@ -86,6 +86,9 @@ public class BedwarsRuntime {
     private final EnderPearlPredictionService enderPearlPredictionService;
     private final FinalKillLedger finalKillLedger;
     private final KillFeedTracker killFeedTracker;
+    private final RespawnTracker respawnTracker;
+    private final BlockChangeFeed blockChangeFeed;
+    private final BridgeRadarService bridgeRadarService;
     private final AntiCheatService antiCheatService;
     private final TabStatsInjector tabStatsInjector;
     private final MapLearningService mapLearningService;
@@ -120,6 +123,9 @@ public class BedwarsRuntime {
         this.enderPearlPredictionService = new EnderPearlPredictionService();
         this.finalKillLedger = new FinalKillLedger();
         this.killFeedTracker = new KillFeedTracker();
+        this.respawnTracker = new RespawnTracker();
+        this.blockChangeFeed = new BlockChangeFeed();
+        this.bridgeRadarService = new BridgeRadarService();
         this.antiCheatService = new AntiCheatService();
         this.tabStatsInjector = new TabStatsInjector(state);
         this.mapLearningService = new MapLearningService(state);
@@ -216,6 +222,8 @@ public class BedwarsRuntime {
         projectileTrackingService.clearAll();
         finalKillLedger.clear();
         killFeedTracker.clear();
+        respawnTracker.clear();
+        bridgeRadarService.clear();
         PlayerDatabase.getInstance().clearCurrentGame();
         AudioCueManager.clearCooldowns();
     }
@@ -310,7 +318,18 @@ public class BedwarsRuntime {
     }
 
     @SubscribeEvent
-    public void onChatReceived(ClientChatReceivedEvent event) {
+    public void onChatReceived(final ClientChatReceivedEvent event) {
+        // Crash shield: a throwing subsystem is logged + quarantined instead
+        // of crashing the client mid-game (same pattern on every handler).
+        SafeSubsystem.run("chat", new Runnable() {
+            @Override
+            public void run() {
+                onChatReceivedImpl(event);
+            }
+        });
+    }
+
+    private void onChatReceivedImpl(ClientChatReceivedEvent event) {
         if (event.message == null) {
             return;
         }
@@ -328,6 +347,11 @@ public class BedwarsRuntime {
             if (state.gamePhase != GamePhase.IN_GAME) {
                 finalKillLedger.clear();
                 killFeedTracker.clear();
+                respawnTracker.clear();
+                bridgeRadarService.clear();
+                state.generatorCueFired.clear();
+                state.scoreboardTeamStatuses.clear();
+                state.nextSidebarEvent = null;
                 mapLearningService.onMatchStart();
                 lobbyTrackerService.activateMatchTracking(mc);
             }
@@ -366,6 +390,10 @@ public class BedwarsRuntime {
                 projectileTrackingService.clearAll();
                 finalKillLedger.clear();
                 killFeedTracker.clear();
+                respawnTracker.clear();
+                bridgeRadarService.clear();
+                state.scoreboardTeamStatuses.clear();
+                state.nextSidebarEvent = null;
                 return;
             }
 
@@ -401,6 +429,10 @@ public class BedwarsRuntime {
                 projectileTrackingService.clearAll();
                 finalKillLedger.clear();
                 killFeedTracker.clear();
+                respawnTracker.clear();
+                bridgeRadarService.clear();
+                state.scoreboardTeamStatuses.clear();
+                state.nextSidebarEvent = null;
                 return;
             }
 
@@ -411,10 +443,16 @@ public class BedwarsRuntime {
                 if (ModConfig.isEnemyTrackingEnabled()) {
                     enemyTrackingService.handleDeathMessage(deadPlayer);
                 }
+                boolean isFinalLine = message.contains(HypixelMessages.FINAL_KILL_SUFFIX);
+                // Non-final deaths respawn on Hypixel's fixed delay — start the
+                // countdown (final-kill victims never come back).
+                if (!isFinalLine && ModConfig.isRespawnCountdownEnabled()) {
+                    respawnTracker.recordDeath(deadPlayer, System.currentTimeMillis());
+                }
                 // Victim-only killfeed entry. Final kills are skipped here —
                 // handleFinalKill below records them with the killer attached.
                 if (ModConfig.isKillfeedEnabled()
-                        && !message.contains(HypixelMessages.FINAL_KILL_SUFFIX)
+                        && !isFinalLine
                         && !deadPlayer.equals(playerName)) {
                     String teamColor = resolveTeamColorCode(mc, deadPlayer);
                     killFeedTracker.addEntry(deadPlayer, null, teamColor, System.currentTimeMillis());
@@ -457,6 +495,10 @@ public class BedwarsRuntime {
                 projectileTrackingService.clearAll();
                 finalKillLedger.clear();
                 killFeedTracker.clear();
+                respawnTracker.clear();
+                bridgeRadarService.clear();
+                state.scoreboardTeamStatuses.clear();
+                state.nextSidebarEvent = null;
                 LOGGER.info("Left Bedwars game - unknown outcome");
             }
             state.gamePhase = GamePhase.IDLE;
@@ -548,7 +590,16 @@ public class BedwarsRuntime {
     }
 
     @SubscribeEvent
-    public void onEntityJoinWorld(EntityJoinWorldEvent event) {
+    public void onEntityJoinWorld(final EntityJoinWorldEvent event) {
+        SafeSubsystem.run("world-join", new Runnable() {
+            @Override
+            public void run() {
+                onEntityJoinWorldImpl(event);
+            }
+        });
+    }
+
+    private void onEntityJoinWorldImpl(EntityJoinWorldEvent event) {
         if (!event.world.isRemote) {
             return;
         }
@@ -600,7 +651,16 @@ public class BedwarsRuntime {
     }
 
     @SubscribeEvent
-    public void onRenderOverlay(RenderGameOverlayEvent.Post event) {
+    public void onRenderOverlay(final RenderGameOverlayEvent.Post event) {
+        SafeSubsystem.runRender("hud", new Runnable() {
+            @Override
+            public void run() {
+                onRenderOverlayImpl(event);
+            }
+        });
+    }
+
+    private void onRenderOverlayImpl(RenderGameOverlayEvent.Post event) {
         if (event.type != RenderGameOverlayEvent.ElementType.TEXT) {
             return;
         }
@@ -630,7 +690,10 @@ public class BedwarsRuntime {
             if (state.gamePhase == GamePhase.IN_GAME || hasDetectedPlayers) {
                 ScaledResolution resolution = new ScaledResolution(mc);
                 hudRenderer.render(resolution, mc, teamDangerAnalyzer, worldScanService, enemyTrackingService,
-                        finalKillLedger, state.matchStartTime, state.chatDetectedPlayers);
+                        finalKillLedger, state.matchStartTime, state.chatDetectedPlayers,
+                        state.scoreboardTeamStatuses, state.nextSidebarEvent,
+                        bridgeRadarService.getHudAlertLines(System.currentTimeMillis()),
+                        state.lobbySummary);
 
                 if (state.gamePhase == GamePhase.IN_GAME) {
                     lastSeenArrowRenderer.render(resolution, mc, enemyTrackingService, event.partialTicks);
@@ -663,7 +726,8 @@ public class BedwarsRuntime {
         // skips expired entries; entries are pruned opportunistically.
         if (ModConfig.isModEnabled() && ModConfig.isKillfeedEnabled() && !killFeedTracker.isEmpty()) {
             ScaledResolution resolution = new ScaledResolution(mc);
-            killFeedRenderer.render(resolution, mc, killFeedTracker);
+            killFeedRenderer.render(resolution, mc, killFeedTracker, respawnTracker,
+                    state.scoreboardTeamStatuses, finalKillLedger);
         }
     }
 
@@ -685,7 +749,16 @@ public class BedwarsRuntime {
     }
 
     @SubscribeEvent
-    public void onClientTick(TickEvent.ClientTickEvent event) {
+    public void onClientTick(final TickEvent.ClientTickEvent event) {
+        SafeSubsystem.run("tick", new Runnable() {
+            @Override
+            public void run() {
+                onClientTickImpl(event);
+            }
+        });
+    }
+
+    private void onClientTickImpl(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.START) {
             return;
         }
@@ -707,9 +780,43 @@ public class BedwarsRuntime {
 
         antiCheatService.onClientTick(mc);
 
+        // Bridge radar + bed-tamper alarm: keep the passive block-change feed
+        // attached and drain it every tick (events are only analyzed in-game,
+        // draining always prevents stale packets flooding a new match). Own
+        // sub-guard: a radar bug must not take the whole tick pipeline down.
+        SafeSubsystem.run("tick.bridge-radar", new Runnable() {
+            @Override
+            public void run() {
+                blockChangeFeed.onClientTick(mc);
+                java.util.List<BlockChangeFeed.BlockChangeEvent> blockChanges =
+                        blockChangeFeed.drainNew();
+                if (state.gamePhase == GamePhase.IN_GAME
+                        && mc.theWorld != null && mc.thePlayer != null) {
+                    bridgeRadarService.onClientTick(mc, blockChanges, matchThreatService,
+                            state.playerBedBlocks, isOwnBedAlive());
+                }
+            }
+        });
+
         // Tab-list stat suffixes: re-applied on the injector's own ~10-tick
         // cadence (Hypixel resends display names), restored when inactive.
         tabStatsInjector.onClientTick(mc);
+
+        // Lobby sweat index: pure aggregation over the stats cache, refreshed
+        // every second. No network calls happen here. Own sub-guard, same
+        // rationale as the radar.
+        SafeSubsystem.run("tick.lobby-analytics", new Runnable() {
+            @Override
+            public void run() {
+                if (ModConfig.isLobbySweatIndexEnabled() && state.gamePhase != GamePhase.IDLE) {
+                    if (state.clientTickCounter % 20 == 0) {
+                        state.lobbySummary = LobbyAnalytics.compute(mc);
+                    }
+                } else if (state.lobbySummary != null) {
+                    state.lobbySummary = null;
+                }
+            }
+        });
 
         // AFK anti-kick: strafe left then right every 60 seconds
         if (state.afkEnabled && mc.thePlayer != null) {
@@ -764,6 +871,11 @@ public class BedwarsRuntime {
                 LOGGER.info("Bedwars match start detected via scoreboard (chat trigger missed)");
                 finalKillLedger.clear();
                 killFeedTracker.clear();
+                respawnTracker.clear();
+                bridgeRadarService.clear();
+                state.generatorCueFired.clear();
+                state.scoreboardTeamStatuses.clear();
+                state.nextSidebarEvent = null;
                 mapLearningService.onMatchStart();
                 lobbyTrackerService.activateMatchTracking(mc);
             }
@@ -790,6 +902,29 @@ public class BedwarsRuntime {
             state.scoreboardTeamStatuses.clear();
             for (ScoreboardGameStateDetector.TeamStatus ts : statuses) {
                 state.scoreboardTeamStatuses.put(ts.teamName, ts);
+            }
+
+            // Server-exact upcoming-event clock ("Diamond II in 3:45"). Keep
+            // the last event through brief sidebar mutations (event banners)
+            // and only drop it once its deadline is clearly past.
+            long nowMs = System.currentTimeMillis();
+            SidebarEventClock.NextEvent parsedEvent = SidebarEventClock.scan(mc, nowMs);
+            if (parsedEvent != null) {
+                state.nextSidebarEvent = parsedEvent;
+            } else if (state.nextSidebarEvent != null
+                    && nowMs > state.nextSidebarEvent.deadlineMs + 3_000L) {
+                state.nextSidebarEvent = null;
+            }
+
+            // One-shot cue at T-5s before a diamond/emerald tier upgrade so the
+            // player can rotate to mid in time. Keyed by label — each tier
+            // upgrade happens once per match.
+            SidebarEventClock.NextEvent upcoming = state.nextSidebarEvent;
+            if (upcoming != null && upcoming.isGeneratorTier
+                    && upcoming.secondsRemaining(nowMs) <= 5
+                    && upcoming.deadlineMs > nowMs
+                    && state.generatorCueFired.add(upcoming.label)) {
+                AudioCueManager.playCue(mc, AudioCueManager.CueType.GENERATOR_TIER_SOON);
             }
 
             // Track the active world so onEntityJoinWorld can distinguish a real
@@ -882,7 +1017,7 @@ public class BedwarsRuntime {
 
         // Fireball detection: scan for incoming EntityLargeFireball projectiles
         if (ModConfig.isFireballDetectionEnabled()) {
-            fireballTrackingService.scanFireballs(mc);
+            fireballTrackingService.scanFireballs(mc, state.playerBedBlocks);
         } else if (!fireballTrackingService.getTracked().isEmpty()) {
             fireballTrackingService.clearAll();
         }
@@ -896,7 +1031,16 @@ public class BedwarsRuntime {
     }
 
     @SubscribeEvent
-    public void onRenderLiving(RenderLivingEvent.Specials.Post event) {
+    public void onRenderLiving(final RenderLivingEvent.Specials.Post event) {
+        SafeSubsystem.runRender("nametags", new Runnable() {
+            @Override
+            public void run() {
+                onRenderLivingImpl(event);
+            }
+        });
+    }
+
+    private void onRenderLivingImpl(RenderLivingEvent.Specials.Post event) {
         if (!ModConfig.isModEnabled()) {
             return;
         }
@@ -977,6 +1121,14 @@ public class BedwarsRuntime {
             }
         }
 
+        // Live finals badge — the "hot hand" signal career FKDR can't show.
+        if (ModConfig.isCarryBadgesEnabled() && state.gamePhase == GamePhase.IN_GAME) {
+            int finals = finalKillLedger.getKillerFinals(player.getName());
+            if (finals >= 2) {
+                threatText = threatText + " " + EnumChatFormatting.GOLD + "⚔" + finals;
+            }
+        }
+
         overlayRenderer.renderThreatLabel(player, threatText, event.x, event.y, event.z);
 
         // Render enemy tracking label below the threat label
@@ -992,7 +1144,16 @@ public class BedwarsRuntime {
     }
 
     @SubscribeEvent
-    public void onRenderWorldLast(RenderWorldLastEvent event) {
+    public void onRenderWorldLast(final RenderWorldLastEvent event) {
+        SafeSubsystem.runRender("world-overlays", new Runnable() {
+            @Override
+            public void run() {
+                onRenderWorldLastImpl(event);
+            }
+        });
+    }
+
+    private void onRenderWorldLastImpl(RenderWorldLastEvent event) {
         if (!ModConfig.isModEnabled()) {
             return;
         }
@@ -1020,6 +1181,10 @@ public class BedwarsRuntime {
 
         if (ModConfig.isFireballDetectionEnabled() && ModConfig.isFireballOverlayEnabled()) {
             overlayRenderer.renderFireballTrajectories(fireballTrackingService.getTracked(), event.partialTicks);
+        }
+
+        if (ModConfig.isBridgeRadarEnabled() && !bridgeRadarService.getActiveAlerts().isEmpty()) {
+            overlayRenderer.renderBridgeTrails(bridgeRadarService.getActiveAlerts(), event.partialTicks);
         }
 
         if (ModConfig.isEnderPearlTrackingEnabled() && ModConfig.isEnderPearlOverlayEnabled()) {
@@ -1384,21 +1549,75 @@ public class BedwarsRuntime {
         }
         // Victims are frequently despawned by the time the final-kill line
         // arrives (death teleports to spectator) \u2014 fall back to the scoreboard
-        // team registration / sidebar snapshot for the color.
+        // team registration / sidebar snapshot for the color, then map that
+        // color back to the sidebar team name so the ledger key stays joinable
+        // with the TEAMS status board (instead of landing in "UNKNOWN").
         if (teamName == null) {
             teamColor = resolveTeamColorCode(mc, victim);
+            for (ScoreboardGameStateDetector.TeamStatus ts : state.scoreboardTeamStatuses.values()) {
+                if (teamColor.equals(ts.colorCode)) {
+                    teamName = ts.teamName;
+                    break;
+                }
+            }
         }
-        finalKillLedger.recordFinalKill(victim, teamName, teamColor);
+        // FINAL_KILL_PATTERN captures the killer in group 2 ("by X") or group 3
+        // ("escape X"); environmental and possessive phrasings capture no
+        // killer at all \u2014 tolerated as null throughout.
+        String killer = m.group(2) != null ? m.group(2) : m.group(3);
+        finalKillLedger.recordFinalKill(victim, teamName, teamColor, killer);
+        maybeWarnCarry(mc, killer);
 
-        // Killfeed entry with the killer attached. FINAL_KILL_PATTERN captures
-        // the killer in group 2 ("by X") or group 3 ("escape X"); environmental
-        // and possessive phrasings capture no killer at all \u2014 tolerated as null.
+        // Killfeed entry with the killer attached.
         if (ModConfig.isKillfeedEnabled()) {
-            String killer = m.group(2) != null ? m.group(2) : m.group(3);
-            killFeedTracker.addEntry(victim, killer, teamColor, System.currentTimeMillis());
+            killFeedTracker.addEntry(victim, killer, teamColor, System.currentTimeMillis(), true);
         }
 
         // Final-kill chat context disabled \u2014 HUD's FINAL KILL TALLY section conveys the same info.
+    }
+
+    /**
+     * Own bed state from the sidebar snapshot; defaults to alive when the
+     * sidebar hasn't identified our row yet (early game).
+     */
+    private boolean isOwnBedAlive() {
+        for (ScoreboardGameStateDetector.TeamStatus ts : state.scoreboardTeamStatuses.values()) {
+            if (ts.isOwnTeam) {
+                return ts.statusType == 'B';
+            }
+        }
+        return true;
+    }
+
+    /**
+     * One-shot "this player is carrying" notice: fires exactly once per killer
+     * per match, on the kill that lifts their tally to the configured
+     * threshold. Local chat only \u2014 never server-bound.
+     */
+    private void maybeWarnCarry(Minecraft mc, String killer) {
+        if (killer == null || !ModConfig.isCarryBadgesEnabled()) {
+            return;
+        }
+        if (mc.thePlayer != null && killer.equals(mc.thePlayer.getName())) {
+            return;
+        }
+        if (finalKillLedger.getKillerFinals(killer) != ModConfig.getCarryWarnThreshold()) {
+            return;
+        }
+        // A teammate's carry is not a threat \u2014 skip when the killer is
+        // resolvable and on our team (despawned killers are treated as enemy).
+        if (mc.theWorld != null && mc.thePlayer != null) {
+            for (EntityPlayer p : mc.theWorld.playerEntities) {
+                if (p.getName().equals(killer)) {
+                    if (matchThreatService.isTeammate(mc, mc.thePlayer, p)) {
+                        return;
+                    }
+                    break;
+                }
+            }
+        }
+        ClientThread.modChat(EnumChatFormatting.RED + "\u2694 " + killer + " is carrying \u2014 "
+                + ModConfig.getCarryWarnThreshold() + " final kills this game.");
     }
 
     /**

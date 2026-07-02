@@ -14,6 +14,7 @@ import net.minecraft.util.BlockPos;
 import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.EnumFacing;
 
+import com.imshy.bedwars.runtime.BridgeRadarService;
 import com.imshy.bedwars.runtime.GeneratorTierSchedule;
 import com.imshy.bedwars.runtime.TrackedEnemy;
 import com.imshy.bedwars.runtime.TrackedFireball;
@@ -416,7 +417,13 @@ public class BedwarsOverlayRenderer {
             float r;
             float g;
             float b;
-            if (fb.threatening) {
+            if (fb.bedThreatening) {
+                // Aimed at the bed defense — magenta, distinct from the red
+                // "aimed at you" case so the player knows to rotate, not jump.
+                r = 1.0F;
+                g = 0.1F;
+                b = 0.7F;
+            } else if (fb.threatening) {
                 r = 1.0F;
                 g = 0.1F;
                 b = 0.1F;
@@ -458,6 +465,159 @@ public class BedwarsOverlayRenderer {
         GlStateManager.disableBlend();
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         GlStateManager.popMatrix();
+
+        // Impact countdowns as billboarded labels, drawn after the line pass
+        // (text rendering needs its own texture/GL block).
+        for (TrackedFireball fb : fireballs) {
+            if (!fb.impactValid || fb.secondsToImpact < 0) {
+                continue;
+            }
+            String text;
+            if (fb.bedThreatening) {
+                text = EnumChatFormatting.LIGHT_PURPLE + "BED "
+                        + EnumChatFormatting.WHITE + formatImpactSeconds(fb.secondsToImpact);
+            } else if (fb.threatening) {
+                text = EnumChatFormatting.RED + "FIREBALL "
+                        + EnumChatFormatting.WHITE + formatImpactSeconds(fb.secondsToImpact);
+            } else {
+                text = EnumChatFormatting.GRAY + formatImpactSeconds(fb.secondsToImpact);
+            }
+            renderFloatingAlertLabel(text, fb.impactX, fb.impactY + 0.8, fb.impactZ, partialTicks);
+        }
+    }
+
+    /** Sub-10s countdown with a decimal ("0.8s"), whole seconds above that. */
+    private static String formatImpactSeconds(double seconds) {
+        if (seconds < 10.0) {
+            return String.format(java.util.Locale.ROOT, "%.1fs", seconds);
+        }
+        return ((int) seconds) + "s";
+    }
+
+    /**
+     * Billboarded, depth-ignoring label at a world position — the same recipe
+     * as {@link #renderGeneratorLabel} but position/text generic so projectile
+     * alerts can reuse it.
+     */
+    private void renderFloatingAlertLabel(String text, double worldX, double worldY, double worldZ,
+            float partialTicks) {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.thePlayer == null) {
+            return;
+        }
+        FontRenderer fontRenderer = mc.fontRendererObj;
+
+        double playerX = mc.thePlayer.lastTickPosX + (mc.thePlayer.posX - mc.thePlayer.lastTickPosX) * partialTicks;
+        double playerY = mc.thePlayer.lastTickPosY + (mc.thePlayer.posY - mc.thePlayer.lastTickPosY) * partialTicks;
+        double playerZ = mc.thePlayer.lastTickPosZ + (mc.thePlayer.posZ - mc.thePlayer.lastTickPosZ) * partialTicks;
+
+        double x = worldX - playerX;
+        double y = worldY - playerY;
+        double z = worldZ - playerZ;
+
+        double distSq = x * x + y * y + z * z;
+        float distance = (float) Math.sqrt(distSq);
+        float baseScale = 0.016666668F * 2.5F;
+        float distanceScale = Math.max(1.0F, distance / 20.0F);
+        float scale = baseScale * distanceScale;
+
+        GlStateManager.pushMatrix();
+        GlStateManager.translate((float) x, (float) y, (float) z);
+        GlStateManager.rotate(-mc.getRenderManager().playerViewY, 0.0F, 1.0F, 0.0F);
+        GlStateManager.rotate(mc.getRenderManager().playerViewX, 1.0F, 0.0F, 0.0F);
+        GlStateManager.scale(-scale, -scale, scale);
+
+        GlStateManager.disableLighting();
+        GlStateManager.depthMask(false);
+        GlStateManager.disableDepth();
+        GlStateManager.enableBlend();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+
+        Tessellator tessellator = Tessellator.getInstance();
+        WorldRenderer worldRenderer = tessellator.getWorldRenderer();
+
+        int textWidth = fontRenderer.getStringWidth(text);
+        int halfWidth = textWidth / 2;
+
+        GlStateManager.disableTexture2D();
+        worldRenderer.begin(7, DefaultVertexFormats.POSITION_COLOR);
+        float bgAlpha = 0.4F;
+        worldRenderer.pos(-halfWidth - 2, -2, 0.0D).color(0.0F, 0.0F, 0.0F, bgAlpha).endVertex();
+        worldRenderer.pos(-halfWidth - 2, 10, 0.0D).color(0.0F, 0.0F, 0.0F, bgAlpha).endVertex();
+        worldRenderer.pos(halfWidth + 2, 10, 0.0D).color(0.0F, 0.0F, 0.0F, bgAlpha).endVertex();
+        worldRenderer.pos(halfWidth + 2, -2, 0.0D).color(0.0F, 0.0F, 0.0F, bgAlpha).endVertex();
+        tessellator.draw();
+        GlStateManager.enableTexture2D();
+
+        fontRenderer.drawString(text, -halfWidth, 0, 0xFFFFFFFF);
+
+        GlStateManager.enableDepth();
+        GlStateManager.depthMask(true);
+        GlStateManager.enableLighting();
+        GlStateManager.disableBlend();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        GlStateManager.popMatrix();
+    }
+
+    /**
+     * Orange polyline along each detected bridge run plus a floating banner at
+     * its head — makes the radar's "bridge from NE" alert visually anchorable.
+     */
+    public void renderBridgeTrails(java.util.List<BridgeRadarService.BridgeAlert> alerts,
+            float partialTicks) {
+        if (alerts == null || alerts.isEmpty()) {
+            return;
+        }
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.thePlayer == null) {
+            return;
+        }
+
+        double playerX = mc.thePlayer.lastTickPosX + (mc.thePlayer.posX - mc.thePlayer.lastTickPosX) * partialTicks;
+        double playerY = mc.thePlayer.lastTickPosY + (mc.thePlayer.posY - mc.thePlayer.lastTickPosY) * partialTicks;
+        double playerZ = mc.thePlayer.lastTickPosZ + (mc.thePlayer.posZ - mc.thePlayer.lastTickPosZ) * partialTicks;
+
+        GlStateManager.pushMatrix();
+        GlStateManager.disableLighting();
+        GlStateManager.disableTexture2D();
+        GlStateManager.enableBlend();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GlStateManager.depthMask(false);
+        GlStateManager.disableDepth();
+        GL11.glLineWidth(3.0F);
+
+        Tessellator tessellator = Tessellator.getInstance();
+        WorldRenderer worldRenderer = tessellator.getWorldRenderer();
+
+        for (BridgeRadarService.BridgeAlert alert : alerts) {
+            worldRenderer.begin(3, DefaultVertexFormats.POSITION_COLOR); // GL_LINE_STRIP
+            for (BlockPos pos : alert.points) {
+                worldRenderer.pos(pos.getX() + 0.5 - playerX,
+                                pos.getY() + 1.2 - playerY,
+                                pos.getZ() + 0.5 - playerZ)
+                        .color(1.0F, 0.55F, 0.1F, 0.9F).endVertex();
+            }
+            tessellator.draw();
+        }
+
+        GL11.glLineWidth(1.0F);
+        GlStateManager.enableDepth();
+        GlStateManager.depthMask(true);
+        GlStateManager.enableTexture2D();
+        GlStateManager.enableLighting();
+        GlStateManager.disableBlend();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        GlStateManager.popMatrix();
+
+        for (BridgeRadarService.BridgeAlert alert : alerts) {
+            BlockPos head = alert.points.get(alert.points.size() - 1);
+            String text = EnumChatFormatting.GOLD + "BRIDGE"
+                    + (alert.etaSeconds > 0
+                            ? " " + EnumChatFormatting.WHITE + alert.etaSeconds + "s"
+                            : "");
+            renderFloatingAlertLabel(text, head.getX() + 0.5, head.getY() + 2.0,
+                    head.getZ() + 0.5, partialTicks);
+        }
     }
 
     public void renderProjectileTrajectories(Collection<TrackedProjectile> projectiles, float partialTicks) {

@@ -6,6 +6,10 @@ import com.imshy.bedwars.ModConfig;
 import com.imshy.bedwars.runtime.ChatDetectedPlayer;
 import com.imshy.bedwars.runtime.EnemyTrackingService;
 import com.imshy.bedwars.runtime.FinalKillLedger;
+import com.imshy.bedwars.runtime.GeneratorTierSchedule;
+import com.imshy.bedwars.runtime.LobbyAnalytics;
+import com.imshy.bedwars.runtime.ScoreboardGameStateDetector;
+import com.imshy.bedwars.runtime.SidebarEventClock;
 import com.imshy.bedwars.runtime.TabListScanner;
 import com.imshy.bedwars.runtime.TabListScanner.TabListPlayer;
 import com.imshy.bedwars.runtime.TeamDangerAnalyzer;
@@ -34,6 +38,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 public class BedwarsHudRenderer {
 
@@ -49,7 +54,11 @@ public class BedwarsHudRenderer {
                        TeamDangerAnalyzer teamDangerAnalyzer, WorldScanService worldScanService,
                        EnemyTrackingService enemyTrackingService,
                        FinalKillLedger finalKillLedger,
-                       long matchStartTime, List<ChatDetectedPlayer> chatDetectedPlayers) {
+                       long matchStartTime, List<ChatDetectedPlayer> chatDetectedPlayers,
+                       Map<String, ScoreboardGameStateDetector.TeamStatus> teamStatuses,
+                       SidebarEventClock.NextEvent nextSidebarEvent,
+                       List<String> alertLines,
+                       LobbyAnalytics.LobbySummary lobbySummary) {
         if (!ModConfig.isModEnabled()) {
             return;
         }
@@ -63,7 +72,8 @@ public class BedwarsHudRenderer {
 
         List<HudLine> lines = new ArrayList<HudLine>();
         buildHudContent(lines, mc, fr, teamDangerAnalyzer, worldScanService, enemyTrackingService,
-                finalKillLedger, matchStartTime, chatDetectedPlayers);
+                finalKillLedger, matchStartTime, chatDetectedPlayers, teamStatuses,
+                nextSidebarEvent, alertLines, lobbySummary);
 
         if (lines.isEmpty()) {
             return;
@@ -162,11 +172,27 @@ public class BedwarsHudRenderer {
                                   TeamDangerAnalyzer teamDangerAnalyzer, WorldScanService worldScanService,
                                   EnemyTrackingService enemyTrackingService,
                                   FinalKillLedger finalKillLedger,
-                                  long matchStartTime, List<ChatDetectedPlayer> chatDetectedPlayers) {
+                                  long matchStartTime, List<ChatDetectedPlayer> chatDetectedPlayers,
+                                  Map<String, ScoreboardGameStateDetector.TeamStatus> teamStatuses,
+                                  SidebarEventClock.NextEvent nextSidebarEvent,
+                                  List<String> alertLines,
+                                  LobbyAnalytics.LobbySummary lobbySummary) {
         boolean addedSection = false;
 
+        // Active alerts (bridge radar, bed tamper) always lead the panel.
+        if (alertLines != null && !alertLines.isEmpty()) {
+            for (String alert : alertLines) {
+                lines.add(HudLine.text(alert));
+            }
+            addedSection = true;
+        }
+
         if (ModConfig.isHudHighestThreatEnabled()) {
-            addedSection = addHighestThreatSection(lines, mc, teamDangerAnalyzer);
+            if (addedSection) {
+                lines.add(HudLine.gap());
+            }
+            boolean added = addHighestThreatSection(lines, mc, teamDangerAnalyzer);
+            addedSection = addedSection || added;
         }
 
         if (ModConfig.isHudGoodTeamsEnabled()) {
@@ -177,11 +203,28 @@ public class BedwarsHudRenderer {
             addedSection = addedSection || added;
         }
 
+        if (ModConfig.isHudTeamStatusBoardEnabled()) {
+            if (addedSection) {
+                lines.add(HudLine.gap());
+            }
+            boolean added = addTeamStatusBoardSection(lines, teamStatuses, finalKillLedger);
+            addedSection = addedSection || added;
+        }
+
+        if (ModConfig.isLobbySweatIndexEnabled() && lobbySummary != null) {
+            if (addedSection) {
+                lines.add(HudLine.gap());
+            }
+            addLobbySweatSection(lines, lobbySummary);
+            addedSection = true;
+        }
+
         if (ModConfig.isHudGeneratorCountsEnabled()) {
             if (addedSection) {
                 lines.add(HudLine.gap());
             }
-            boolean added = addGeneratorSection(lines, worldScanService);
+            boolean added = addGeneratorSection(lines, worldScanService, nextSidebarEvent,
+                    matchStartTime);
             addedSection = addedSection || added;
         }
 
@@ -197,7 +240,8 @@ public class BedwarsHudRenderer {
             if (addedSection) {
                 lines.add(HudLine.gap());
             }
-            boolean added = addTeamSummarySection(lines, mc, teamDangerAnalyzer, matchStartTime);
+            boolean added = addTeamSummarySection(lines, mc, teamDangerAnalyzer, matchStartTime,
+                    finalKillLedger);
             addedSection = addedSection || added;
         }
 
@@ -294,28 +338,72 @@ public class BedwarsHudRenderer {
         return headerAdded;
     }
 
-    private boolean addGeneratorSection(List<HudLine> lines, WorldScanService worldScanService) {
+    private boolean addGeneratorSection(List<HudLine> lines, WorldScanService worldScanService,
+            SidebarEventClock.NextEvent nextSidebarEvent, long matchStartTime) {
         GeneratorSummary summary = worldScanService.getGeneratorSummary();
-        if (summary.diamondGenerators == 0 && summary.emeraldGenerators == 0) {
+        String clockLine = buildTierClockLine(nextSidebarEvent, matchStartTime);
+        boolean haveCounts = summary.diamondGenerators > 0 || summary.emeraldGenerators > 0;
+        if (!haveCounts && clockLine == null) {
             return false;
         }
 
         lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "GENERATORS"));
 
-        StringBuilder sb = new StringBuilder();
-        if (summary.diamondGenerators > 0) {
-            sb.append(EnumChatFormatting.AQUA).append("Diamonds: ")
-              .append(EnumChatFormatting.WHITE).append(summary.totalDiamonds);
-        }
-        if (summary.emeraldGenerators > 0) {
-            if (sb.length() > 0) {
-                sb.append(EnumChatFormatting.GRAY).append("  ");
+        if (haveCounts) {
+            StringBuilder sb = new StringBuilder();
+            if (summary.diamondGenerators > 0) {
+                sb.append(EnumChatFormatting.AQUA).append("Diamonds: ")
+                  .append(EnumChatFormatting.WHITE).append(summary.totalDiamonds);
             }
-            sb.append(EnumChatFormatting.GREEN).append("Emeralds: ")
-              .append(EnumChatFormatting.WHITE).append(summary.totalEmeralds);
+            if (summary.emeraldGenerators > 0) {
+                if (sb.length() > 0) {
+                    sb.append(EnumChatFormatting.GRAY).append("  ");
+                }
+                sb.append(EnumChatFormatting.GREEN).append("Emeralds: ")
+                  .append(EnumChatFormatting.WHITE).append(summary.totalEmeralds);
+            }
+            lines.add(HudLine.text(sb.toString()));
         }
-        lines.add(HudLine.text(sb.toString()));
+        if (clockLine != null) {
+            lines.add(HudLine.text(clockLine));
+        }
         return true;
+    }
+
+    /**
+     * Next-event countdown. Prefers the server-exact sidebar row ("Diamond II
+     * in 3:45"); falls back to the static community schedule (marked "est")
+     * when the sidebar row is absent. Null when the clock is disabled or
+     * nothing sensible can be shown.
+     */
+    private String buildTierClockLine(SidebarEventClock.NextEvent nextSidebarEvent,
+            long matchStartTime) {
+        if (!ModConfig.isGeneratorTierClockEnabled()) {
+            return null;
+        }
+        long now = System.currentTimeMillis();
+        if (nextSidebarEvent != null && nextSidebarEvent.deadlineMs > now) {
+            String label = nextSidebarEvent.label;
+            String labelColor = label.startsWith("Diamond")
+                    ? EnumChatFormatting.AQUA.toString()
+                    : label.startsWith("Emerald")
+                            ? EnumChatFormatting.GREEN.toString()
+                            : EnumChatFormatting.YELLOW.toString();
+            int secs = nextSidebarEvent.secondsRemaining(now);
+            return EnumChatFormatting.GRAY + "Next: " + labelColor + label + " "
+                    + EnumChatFormatting.WHITE + GeneratorTierSchedule.formatDuration(secs);
+        }
+        if (matchStartTime > 0) {
+            int elapsed = GeneratorTierSchedule.elapsedSecondsFromMatchStart(matchStartTime);
+            int untilTier = GeneratorTierSchedule.secondsUntilNextTier(elapsed);
+            if (untilTier > 0) {
+                int nextTier = GeneratorTierSchedule.currentTier(elapsed) + 1;
+                return EnumChatFormatting.GRAY + "Next: " + EnumChatFormatting.WHITE
+                        + "Tier " + nextTier + " ~" + GeneratorTierSchedule.formatDuration(untilTier)
+                        + EnumChatFormatting.DARK_GRAY + " est";
+            }
+        }
+        return null;
     }
 
     private boolean addResourceSection(List<HudLine> lines, Minecraft mc) {
@@ -379,21 +467,129 @@ public class BedwarsHudRenderer {
         return true;
     }
 
+    /**
+     * Always-on per-team status strip built from the sidebar snapshot the
+     * runtime already polls every 10 ticks: color swatch, bed state, players
+     * left once the bed is gone, plus how many of the team's players have
+     * been permanently lost to final kills. Needs no API key at all.
+     */
+    private boolean addTeamStatusBoardSection(List<HudLine> lines,
+            Map<String, ScoreboardGameStateDetector.TeamStatus> teamStatuses,
+            FinalKillLedger finalKillLedger) {
+        if (teamStatuses == null || teamStatuses.isEmpty()) {
+            return false;
+        }
+
+        int total = teamStatuses.size();
+        int left = 0;
+        for (ScoreboardGameStateDetector.TeamStatus ts : teamStatuses.values()) {
+            if (ts.statusType != 'E') {
+                left++;
+            }
+        }
+        lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE
+                + "TEAMS " + EnumChatFormatting.RESET + EnumChatFormatting.GRAY
+                + left + "/" + total + " left"));
+
+        for (ScoreboardGameStateDetector.TeamStatus ts : teamStatuses.values()) {
+            String color = ts.colorCode.isEmpty()
+                    ? EnumChatFormatting.GRAY.toString() : ts.colorCode;
+            StringBuilder row = new StringBuilder();
+            if (ts.statusType == 'E') {
+                // Eliminated rows are dimmed entirely.
+                row.append(EnumChatFormatting.DARK_GRAY)
+                        .append("■ ").append(ts.teamName).append(" ✘ out");
+            } else {
+                row.append(color).append("■ ").append(ts.teamName).append(' ');
+                if (ts.statusType == 'B') {
+                    row.append(EnumChatFormatting.GREEN).append('✔');
+                } else {
+                    row.append(EnumChatFormatting.RED).append('✘')
+                            .append(EnumChatFormatting.WHITE).append(' ')
+                            .append(ts.bedGoneCount).append(" left");
+                }
+                int lost = teamFinalsLost(finalKillLedger, ts.teamName);
+                if (lost > 0) {
+                    row.append(EnumChatFormatting.GRAY).append(" -").append(lost);
+                }
+                if (ts.isOwnTeam) {
+                    row.append(EnumChatFormatting.WHITE).append(" YOU");
+                }
+            }
+            lines.add(HudLine.text(row.toString()));
+        }
+        return true;
+    }
+
+    /**
+     * One-line lobby difficulty readout: average stars/FKDR over cached stats,
+     * a Chill/Average/Sweaty tier, your percentile, and the honest
+     * known-player count.
+     */
+    private void addLobbySweatSection(List<HudLine> lines, LobbyAnalytics.LobbySummary s) {
+        String tierColor = "Sweaty".equals(s.tier) ? EnumChatFormatting.RED.toString()
+                : "Average".equals(s.tier) ? EnumChatFormatting.YELLOW.toString()
+                        : EnumChatFormatting.GREEN.toString();
+        StringBuilder sb = new StringBuilder()
+                .append(EnumChatFormatting.BOLD).append(EnumChatFormatting.WHITE).append("LOBBY ")
+                .append(EnumChatFormatting.RESET)
+                .append(tierColor).append(s.tier);
+        lines.add(HudLine.text(sb.toString()));
+
+        StringBuilder detail = new StringBuilder()
+                .append(EnumChatFormatting.GRAY).append("avg ")
+                .append(EnumChatFormatting.WHITE).append(Math.round(s.avgStars)).append("✫ ")
+                .append(String.format(java.util.Locale.ROOT, "%.1f", s.avgFkdr)).append(" FKDR");
+        if (s.ownPercentile >= 0) {
+            detail.append(EnumChatFormatting.GRAY).append(" · you: top ")
+                    .append(EnumChatFormatting.WHITE)
+                    .append(Math.max(1, 100 - s.ownPercentile)).append("%");
+        }
+        detail.append(EnumChatFormatting.DARK_GRAY).append(" (")
+                .append(s.knownPlayers).append("/").append(s.totalPlayers).append(" known)");
+        lines.add(HudLine.text(detail.toString()));
+    }
+
+    /**
+     * Final kills recorded AGAINST {@code teamName} (players permanently
+     * lost). Ledger keys are scoreboard registered team names, which only
+     * CONTAIN the sidebar color word (e.g. "team_red" vs "Red") — hence the
+     * containment match rather than equality.
+     */
+    private static int teamFinalsLost(FinalKillLedger ledger, String teamName) {
+        if (ledger == null || teamName == null || teamName.isEmpty()) {
+            return 0;
+        }
+        String needle = teamName.toLowerCase(java.util.Locale.ROOT);
+        for (Map.Entry<String, FinalKillLedger.TeamTally> e : ledger.getTallies().entrySet()) {
+            if (e.getKey().toLowerCase(java.util.Locale.ROOT).contains(needle)) {
+                return e.getValue().finalKills;
+            }
+        }
+        return 0;
+    }
+
     private boolean addFinalKillTallySection(List<HudLine> lines, FinalKillLedger ledger) {
         lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "FINAL KILLS"));
         lines.add(HudLine.text(EnumChatFormatting.WHITE.toString() + ledger.getTotalFinalKills()));
+        FinalKillLedger.KillerTally top = ledger.getTopKiller();
+        if (ModConfig.isCarryBadgesEnabled() && top != null && top.finalKills >= 2) {
+            lines.add(HudLine.text(EnumChatFormatting.GOLD + "⚔ " + top.killerName
+                    + EnumChatFormatting.GRAY + " x" + top.finalKills));
+        }
         return true;
     }
 
     private boolean addTeamSummarySection(List<HudLine> lines, Minecraft mc,
-                                           TeamDangerAnalyzer teamDangerAnalyzer, long matchStartTime) {
+                                           TeamDangerAnalyzer teamDangerAnalyzer, long matchStartTime,
+                                           FinalKillLedger finalKillLedger) {
         boolean earlyPhase = matchStartTime <= 0
                 || (System.currentTimeMillis() - matchStartTime) < TEAM_SUMMARY_DURATION_MS;
 
         if (earlyPhase) {
             return addTeamLevelSummary(lines, mc, teamDangerAnalyzer);
         }
-        return addHighThreatPlayerList(lines, mc);
+        return addHighThreatPlayerList(lines, mc, finalKillLedger);
     }
 
     private boolean addTeamLevelSummary(List<HudLine> lines, Minecraft mc,
@@ -425,10 +621,12 @@ public class BedwarsHudRenderer {
         return true;
     }
 
-    private boolean addHighThreatPlayerList(List<HudLine> lines, Minecraft mc) {
+    private boolean addHighThreatPlayerList(List<HudLine> lines, Minecraft mc,
+            FinalKillLedger finalKillLedger) {
         if (mc.theWorld == null || mc.thePlayer == null) {
             return false;
         }
+        boolean carryBadges = ModConfig.isCarryBadgesEnabled() && finalKillLedger != null;
 
         Character ownColor = TabListScanner.getLocalPlayerColorCode(mc);
         List<TabListPlayer> allPlayers = TabListScanner.scanAllPlayers(mc);
@@ -462,16 +660,21 @@ public class BedwarsHudRenderer {
                 }
             }
 
-            threats.add(new ThreatPlayerEntry(tp.name, threat, distance, skin, tp.teamColorPrefix));
+            int matchFinals = carryBadges ? finalKillLedger.getKillerFinals(tp.name) : 0;
+            threats.add(new ThreatPlayerEntry(tp.name, threat, distance, skin, tp.teamColorPrefix,
+                    matchFinals));
         }
 
         if (threats.isEmpty()) {
             return false;
         }
 
+        // The match's carry sorts to the top regardless of distance; distance
+        // breaks ties (unresolved distances last).
         Collections.sort(threats, new Comparator<ThreatPlayerEntry>() {
             @Override
             public int compare(ThreatPlayerEntry a, ThreatPlayerEntry b) {
+                if (a.matchFinals != b.matchFinals) return Integer.compare(b.matchFinals, a.matchFinals);
                 if (a.distance >= 0 && b.distance < 0) return -1;
                 if (a.distance < 0 && b.distance >= 0) return 1;
                 if (a.distance >= 0 && b.distance >= 0) return Integer.compare(a.distance, b.distance);
@@ -492,6 +695,9 @@ public class BedwarsHudRenderer {
                     + EnumChatFormatting.GRAY + " - "
                     + threatColor + entry.threat.name()
                     + EnumChatFormatting.GRAY + "  " + distanceText;
+            if (entry.matchFinals >= 2) {
+                line += " " + EnumChatFormatting.GOLD + "⚔" + entry.matchFinals;
+            }
 
             lines.add(HudLine.playerLine(line, entry.skin));
         }
@@ -646,13 +852,16 @@ public class BedwarsHudRenderer {
         final int distance;
         final ResourceLocation skin;
         final String teamColor;
+        final int matchFinals;
 
-        ThreatPlayerEntry(String name, BedwarsStats.ThreatLevel threat, int distance, ResourceLocation skin, String teamColor) {
+        ThreatPlayerEntry(String name, BedwarsStats.ThreatLevel threat, int distance, ResourceLocation skin, String teamColor,
+                int matchFinals) {
             this.name = name;
             this.threat = threat;
             this.distance = distance;
             this.skin = skin;
             this.teamColor = teamColor;
+            this.matchFinals = matchFinals;
         }
     }
 

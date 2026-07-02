@@ -27,6 +27,7 @@ public class FireballTrackingService {
 
     private final Map<Integer, TrackedFireball> tracked = new HashMap<Integer, TrackedFireball>();
     private final Set<Integer> alertedIds = new HashSet<Integer>();
+    private final Set<Integer> bedAlertedIds = new HashSet<Integer>();
 
     public Collection<TrackedFireball> getTracked() {
         return Collections.unmodifiableCollection(tracked.values());
@@ -35,9 +36,20 @@ public class FireballTrackingService {
     public void clearAll() {
         tracked.clear();
         alertedIds.clear();
+        bedAlertedIds.clear();
     }
 
     public void scanFireballs(Minecraft mc) {
+        scanFireballs(mc, null);
+    }
+
+    /**
+     * @param bedBlocks the local team's bed blocks (may be null/empty when the
+     *                  bed hasn't been located) — used to classify impacts as
+     *                  bed-defense attacks, which alert even when the fireball
+     *                  never comes near the player.
+     */
+    public void scanFireballs(Minecraft mc, java.util.List<net.minecraft.util.BlockPos> bedBlocks) {
         if (mc == null || mc.theWorld == null || mc.thePlayer == null) {
             return;
         }
@@ -86,6 +98,9 @@ public class FireballTrackingService {
                 tf.closestDistance = distanceTo(tf.posX, tf.posY, tf.posZ, playerX, playerY, playerZ);
                 tf.ticksToClosest = 0.0;
                 tf.threatening = false;
+                tf.secondsToImpact = -1.0;
+                tf.bedDistance = -1.0;
+                tf.bedThreatening = false;
                 continue;
             }
 
@@ -144,10 +159,40 @@ public class FireballTrackingService {
             tf.ticksToClosest = tStar;
             tf.threatening = tf.closestDistance < alertRadius;
 
+            // Time-to-impact from the segment length: motion is one step per
+            // tick, so segmentLen IS the tick count to the impact point.
+            tf.secondsToImpact = tf.impactValid ? segmentLen / 20.0 : -1.0;
+
+            // Bed-impact classification (mirrors the pearl landingBedDistance
+            // recipe): nearest own-bed block to the projected impact point.
+            tf.bedDistance = -1.0;
+            tf.bedThreatening = false;
+            if (tf.impactValid && bedBlocks != null && !bedBlocks.isEmpty()) {
+                double best = Double.MAX_VALUE;
+                for (net.minecraft.util.BlockPos bed : bedBlocks) {
+                    double d = distanceTo(tf.impactX, tf.impactY, tf.impactZ,
+                            bed.getX() + 0.5, bed.getY() + 0.5, bed.getZ() + 0.5);
+                    if (d < best) {
+                        best = d;
+                    }
+                }
+                tf.bedDistance = best;
+                tf.bedThreatening = best <= ModConfig.getFireballBedAlertRadius();
+            }
+
             if (tf.threatening && !alertedIds.contains(id)) {
                 alertedIds.add(id);
                 if (ModConfig.isFireballAudioCueEnabled()) {
                     AudioCueManager.playCue(mc, AudioCueManager.CueType.FIREBALL_INCOMING);
+                }
+            }
+
+            // Distinct, louder cue for bed-defense attacks — today these are
+            // completely silent unless the fireball also passes near the player.
+            if (tf.bedThreatening && !bedAlertedIds.contains(id)) {
+                bedAlertedIds.add(id);
+                if (ModConfig.isFireballAudioCueEnabled()) {
+                    AudioCueManager.playCue(mc, AudioCueManager.CueType.FIREBALL_BED_INCOMING);
                 }
             }
         }
@@ -159,6 +204,7 @@ public class FireballTrackingService {
             if (!seenThisTick.contains(entry.getKey())) {
                 it.remove();
                 alertedIds.remove(entry.getKey());
+                bedAlertedIds.remove(entry.getKey());
             }
         }
     }

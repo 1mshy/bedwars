@@ -119,4 +119,47 @@ public class FinalKillLedgerTest {
         assertTrue(tally.lastKillTime >= before);
         assertTrue(tally.isOnStreak(System.currentTimeMillis()));
     }
+
+    @Test
+    public void killerTallyAccumulatesPerKiller() {
+        ledger.recordFinalKill("Alice", "Red", "§c", "Sniper");
+        ledger.recordFinalKill("Bob", "Blue", "§9", "Sniper");
+        ledger.recordFinalKill("Carol", "Red", "§c", "Other");
+
+        assertEquals(2, ledger.getKillerFinals("Sniper"));
+        assertEquals(1, ledger.getKillerFinals("Other"));
+        assertEquals(0, ledger.getKillerFinals("Nobody"));
+        assertEquals(0, ledger.getKillerFinals(null));
+    }
+
+    @Test
+    public void killerLookupIsCaseInsensitive() {
+        ledger.recordFinalKill("Alice", "Red", "§c", "Sniper");
+        assertEquals(1, ledger.getKillerFinals("sNiPeR"));
+    }
+
+    @Test
+    public void nullKillerOnlyUpdatesTeamTally() {
+        ledger.recordFinalKill("Alice", "Red", "§c", null);
+        assertEquals(1, ledger.getTotalFinalKills());
+        assertEquals(null, ledger.getTopKiller());
+    }
+
+    @Test
+    public void topKillerIsHighestTally() {
+        ledger.recordFinalKill("A", "Red", "§c", "Low");
+        ledger.recordFinalKill("B", "Blue", "§9", "High");
+        ledger.recordFinalKill("C", "Green", "§a", "High");
+
+        assertEquals("High", ledger.getTopKiller().killerName);
+        assertEquals(2, ledger.getTopKiller().finalKills);
+    }
+
+    @Test
+    public void clearDropsKillerTallies() {
+        ledger.recordFinalKill("Alice", "Red", "§c", "Sniper");
+        ledger.clear();
+        assertEquals(0, ledger.getKillerFinals("Sniper"));
+        assertEquals(null, ledger.getTopKiller());
+    }
 }

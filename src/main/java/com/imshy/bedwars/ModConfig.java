@@ -78,6 +78,7 @@ public class ModConfig {
     private static boolean fireballOverlayEnabled = true;
     private static boolean fireballAudioCueEnabled = true;
     private static double fireballAlertRadius = 3.0; // blocks
+    private static double fireballBedAlertRadius = 4.0; // blocks
     private static int fireballMaxTraceDistance = 200; // blocks
 
     // HUD overlay settings
@@ -86,6 +87,7 @@ public class ModConfig {
     private static boolean hudGeneratorCountsEnabled = true;
     private static boolean hudTeamSummaryEnabled = true;
     private static boolean hudGoodTeamsEnabled = true;
+    private static boolean hudTeamStatusBoardEnabled = true;
     private static boolean hudChatDetectedEnabled = true;
     private static boolean hudResourceEnabled = true;
     private static int resourceAlertIronThreshold = 40;
@@ -145,6 +147,20 @@ public class ModConfig {
     private static String killfeedAnchor = "TOP_RIGHT";
     private static int killfeedOffsetX = 4;
     private static int killfeedOffsetY = 4;
+    // Respawn countdown suffix on killfeed entries (~5.5s Hypixel respawn delay)
+    private static boolean respawnCountdownEnabled = true;
+    // Per-killer live finals badges on nametags/killfeed + one-shot carry warning
+    private static boolean carryBadgesEnabled = true;
+    private static int carryWarnThreshold = 4;
+    // Sidebar-calibrated generator tier clock (HUD countdown + T-5s audio cue)
+    private static boolean generatorTierClockEnabled = true;
+    private static boolean generatorTierCueEnabled = true;
+    // Passive block-change-packet consumers: bridge radar + bed tamper alarm
+    private static boolean bridgeRadarEnabled = true;
+    private static boolean bedTamperAlarmEnabled = true;
+    private static double bedTamperRadius = 8.0;
+    // Lobby sweat index: cached-stats aggregate + own percentile on the HUD
+    private static boolean lobbySweatIndexEnabled = true;
 
     // HUD editor (/bw edithud): anchor + offset position overrides. While the
     // per-element custom flag is false the legacy position logic (hudPosition
@@ -568,6 +584,13 @@ public class ModConfig {
                     "Show a GOOD TEAMS section listing teams whose average threat is HIGH or EXTREME");
             hudGoodTeamsEnabled = hudGoodTeamsProp.getBoolean();
 
+            Property hudTeamStatusBoardProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "hudTeamStatusBoardEnabled",
+                    true,
+                    "Show a TEAMS status board (bed alive/gone, players left, finals lost) built from the sidebar; works without an API key.");
+            hudTeamStatusBoardEnabled = hudTeamStatusBoardProp.getBoolean();
+
             Property hudChatDetectedProp = config.get(
                     Configuration.CATEGORY_GENERAL,
                     "hudChatDetectedEnabled",
@@ -673,6 +696,14 @@ public class ModConfig {
                     "Max distance (blocks) between the fireball's projected path and the player to count as threatening",
                     0.5, 10.0);
             fireballAlertRadius = fireballAlertRadiusProp.getDouble();
+
+            Property fireballBedAlertRadiusProp = config.get(
+                    Configuration.CATEGORY_GENERAL,
+                    "fireballBedAlertRadius",
+                    4.0,
+                    "Max distance (blocks) between a fireball's projected impact and your bed to fire the bed-attack warning",
+                    1.0, 10.0);
+            fireballBedAlertRadius = fireballBedAlertRadiusProp.getDouble();
 
             Property fireballMaxTraceProp = config.get(
                     Configuration.CATEGORY_GENERAL,
@@ -879,6 +910,71 @@ public class ModConfig {
                     true,
                     "Show a compact killfeed HUD element listing recent kills and deaths (threat-colored killers).");
             killfeedEnabled = killfeedEnabledProp.getBoolean();
+
+            Property respawnCountdownProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "respawnCountdownEnabled",
+                    true,
+                    "Append an estimated respawn countdown (~5s) to killfeed entries; final kills show a cross instead.");
+            respawnCountdownEnabled = respawnCountdownProp.getBoolean();
+
+            Property carryBadgesProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "carryBadgesEnabled",
+                    true,
+                    "Show live per-match final-kill badges on threat nametags and killfeed entries, plus a one-shot warning when an enemy reaches the carry threshold.");
+            carryBadgesEnabled = carryBadgesProp.getBoolean();
+
+            Property carryWarnThresholdProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "carryWarnThreshold",
+                    4,
+                    "Final kills in one match at which the carry warning fires.",
+                    2, 16);
+            carryWarnThreshold = carryWarnThresholdProp.getInt();
+
+            Property generatorTierClockProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "generatorTierClockEnabled",
+                    true,
+                    "Show the server-exact next-event countdown (Diamond/Emerald tier upgrades) from the sidebar in the HUD generators section.");
+            generatorTierClockEnabled = generatorTierClockProp.getBoolean();
+
+            Property generatorTierCueProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "generatorTierCueEnabled",
+                    true,
+                    "Play a note cue 5 seconds before a diamond/emerald generator tier upgrade.");
+            generatorTierCueEnabled = generatorTierCueProp.getBoolean();
+
+            Property bridgeRadarProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "bridgeRadarEnabled",
+                    true,
+                    "Detect enemy bridges advancing toward your bed from block-placement packets and alert with direction, distance and ETA.");
+            bridgeRadarEnabled = bridgeRadarProp.getBoolean();
+
+            Property bedTamperAlarmProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "bedTamperAlarmEnabled",
+                    true,
+                    "Alarm the instant any block changes near your bed with no teammate nearby (packet-level, works behind terrain within loaded chunks).");
+            bedTamperAlarmEnabled = bedTamperAlarmProp.getBoolean();
+
+            Property bedTamperRadiusProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "bedTamperRadius",
+                    8.0,
+                    "Radius (blocks) around your bed watched by the tamper alarm.",
+                    3.0, 16.0);
+            bedTamperRadius = bedTamperRadiusProp.getDouble();
+
+            Property lobbySweatIndexProp = config.get(
+                    CATEGORY_NEW_FEATURES,
+                    "lobbySweatIndexEnabled",
+                    true,
+                    "Show a LOBBY difficulty line (avg stars/FKDR, Chill/Average/Sweaty, your percentile) aggregated from already-cached stats.");
+            lobbySweatIndexEnabled = lobbySweatIndexProp.getBoolean();
 
             Property killfeedAnchorProp = config.get(
                     CATEGORY_NEW_FEATURES,
@@ -1343,6 +1439,10 @@ public class ModConfig {
         return hudGoodTeamsEnabled;
     }
 
+    public static boolean isHudTeamStatusBoardEnabled() {
+        return hudTeamStatusBoardEnabled;
+    }
+
     public static boolean isHudChatDetectedEnabled() {
         return hudChatDetectedEnabled;
     }
@@ -1409,6 +1509,10 @@ public class ModConfig {
 
     public static double getFireballAlertRadius() {
         return fireballAlertRadius;
+    }
+
+    public static double getFireballBedAlertRadius() {
+        return fireballBedAlertRadius;
     }
 
     public static int getFireballMaxTraceDistance() {
@@ -1526,6 +1630,42 @@ public class ModConfig {
 
     public static boolean isKillfeedEnabled() {
         return killfeedEnabled;
+    }
+
+    public static boolean isRespawnCountdownEnabled() {
+        return respawnCountdownEnabled;
+    }
+
+    public static boolean isCarryBadgesEnabled() {
+        return carryBadgesEnabled;
+    }
+
+    public static int getCarryWarnThreshold() {
+        return carryWarnThreshold;
+    }
+
+    public static boolean isGeneratorTierClockEnabled() {
+        return generatorTierClockEnabled;
+    }
+
+    public static boolean isGeneratorTierCueEnabled() {
+        return generatorTierCueEnabled;
+    }
+
+    public static boolean isBridgeRadarEnabled() {
+        return bridgeRadarEnabled;
+    }
+
+    public static boolean isBedTamperAlarmEnabled() {
+        return bedTamperAlarmEnabled;
+    }
+
+    public static double getBedTamperRadius() {
+        return bedTamperRadius;
+    }
+
+    public static boolean isLobbySweatIndexEnabled() {
+        return lobbySweatIndexEnabled;
     }
 
     public static String getKillfeedAnchor() {
