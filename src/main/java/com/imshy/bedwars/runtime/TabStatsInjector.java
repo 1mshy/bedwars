@@ -161,9 +161,19 @@ public class TabStatsInjector {
             // would re-evaluate team formatting live every frame — the server
             // never resends a display name it never sent — so track scoreboard
             // team changes (game-start recolors, rejoins) ourselves.
-            if (entry.baseSynthesized) {
-                String liveBase = ScorePlayerTeam.formatPlayerName(info.getPlayerTeam(), name);
-                if (liveBase != null && !liveBase.equals(entry.baseFormattedText)) {
+            //
+            // Only re-evaluate against a REAL team: formatPlayerName returns the
+            // bare (uncoloured) name when the team is null, and getPlayerTeam()
+            // blips null while Hypixel churns team packets early in a game. The
+            // old `liveBase != null` guard was dead (formatPlayerName never
+            // returns null for a non-empty name), so those blips clobbered the
+            // cached colour and froze the name white for up to a tick interval —
+            // the "name flashes white in tab" bug. Keep the last known colour
+            // until a team read succeeds again.
+            ScorePlayerTeam liveTeam = info.getPlayerTeam();
+            if (entry.baseSynthesized && liveTeam != null) {
+                String liveBase = ScorePlayerTeam.formatPlayerName(liveTeam, name);
+                if (!liveBase.equals(entry.baseFormattedText)) {
                     entry.baseFormattedText = liveBase;
                     apply(info, entry, suffix);
                     return;
@@ -179,6 +189,16 @@ public class TabStatsInjector {
 
         // First touch, or the server resent the display name: the current
         // component (or its team-formatted synthesis) is the new base.
+        ScorePlayerTeam freshTeam = info.getPlayerTeam();
+        if (current == null && freshTeam == null) {
+            // Nothing coloured to anchor to: the server sent no display name and
+            // no scoreboard team has loaded yet. Synthesizing now would freeze
+            // the bare white name in for a tick interval. Leave the slot to
+            // vanilla (which renders the same bare name for this frame) and try
+            // again next pass once a team exists — avoids a white flash on a
+            // player's first appearance in tab.
+            return;
+        }
         if (entry == null) {
             entry = new InjectedEntry();
             injected.put(uuid, entry);
@@ -187,7 +207,7 @@ public class TabStatsInjector {
         entry.baseSynthesized = current == null;
         entry.baseFormattedText = current != null
                 ? current.getFormattedText()
-                : ScorePlayerTeam.formatPlayerName(info.getPlayerTeam(), name);
+                : ScorePlayerTeam.formatPlayerName(freshTeam, name);
         apply(info, entry, suffix);
     }
 
