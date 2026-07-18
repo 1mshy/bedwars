@@ -20,6 +20,7 @@ import org.apache.logging.log4j.Logger;
 public class MatchThreatService {
     private static final Logger LOGGER = LogManager.getLogger("BedwarsStats");
     private static final int BED_PROXIMITY_WARNING_DISTANCE = 15;
+    private static final long BED_PROXIMITY_CHECK_INTERVAL = 500;
     private static final long BED_WARNING_COOLDOWN = 5000;
     private static final long BED_WARNING_START_DELAY = 10000;
     private static final long BED_DETECTION_ATTEMPT_INTERVAL = 1000;
@@ -32,6 +33,7 @@ public class MatchThreatService {
 
     private final RuntimeState state;
     private final TeamDangerAnalyzer teamDangerAnalyzer;
+    private long lastBedProximityCheckAt;
 
     MatchThreatService(RuntimeState state, TeamDangerAnalyzer teamDangerAnalyzer) {
         this.state = state;
@@ -215,8 +217,23 @@ public class MatchThreatService {
             return;
         }
 
+        // This runs from the tick handler (20Hz); the isTeammate chain per
+        // enemy is too heavy for that, and 500ms is still far tighter than
+        // the warning cooldown.
+        if (currentTime - lastBedProximityCheckAt < BED_PROXIMITY_CHECK_INTERVAL) {
+            return;
+        }
+        lastBedProximityCheckAt = currentTime;
+
         for (EntityPlayer player : mc.theWorld.playerEntities) {
             if (player.getUniqueID().equals(mc.thePlayer.getUniqueID())) {
+                continue;
+            }
+
+            // Cheap distance cull first — only players actually near a bed pay
+            // for the name heuristic and the isTeammate chain.
+            double distance = getDistanceToNearestTrackedBed(player.getPosition());
+            if (distance < 0 || distance > BED_PROXIMITY_WARNING_DISTANCE) {
                 continue;
             }
 
@@ -229,22 +246,15 @@ public class MatchThreatService {
                 continue;
             }
 
-            double distance = getDistanceToNearestTrackedBed(player.getPosition());
-            if (distance < 0) {
-                continue;
-            }
+            Long lastWarning = state.lastBedWarningTime.get(playerName);
+            if (lastWarning == null || (currentTime - lastWarning) >= BED_WARNING_COOLDOWN) {
+                String warningMessage = EnumChatFormatting.DARK_RED + "⚠ BED WARNING: " +
+                        EnumChatFormatting.RED + playerName +
+                        EnumChatFormatting.YELLOW + " is " + (int) distance + " blocks from your bed!";
+                mc.thePlayer.addChatMessage(new ChatComponentText(warningMessage));
+                AudioCueManager.playCue(mc, AudioCueManager.CueType.BED_DANGER);
 
-            if (distance <= BED_PROXIMITY_WARNING_DISTANCE) {
-                Long lastWarning = state.lastBedWarningTime.get(playerName);
-                if (lastWarning == null || (currentTime - lastWarning) >= BED_WARNING_COOLDOWN) {
-                    String warningMessage = EnumChatFormatting.DARK_RED + "⚠ BED WARNING: " +
-                            EnumChatFormatting.RED + playerName +
-                            EnumChatFormatting.YELLOW + " is " + (int) distance + " blocks from your bed!";
-                    mc.thePlayer.addChatMessage(new ChatComponentText(warningMessage));
-                    AudioCueManager.playCue(mc, AudioCueManager.CueType.BED_DANGER);
-
-                    state.lastBedWarningTime.put(playerName, currentTime);
-                }
+                state.lastBedWarningTime.put(playerName, currentTime);
             }
         }
     }

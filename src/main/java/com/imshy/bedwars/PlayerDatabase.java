@@ -432,10 +432,9 @@ public class PlayerDatabase {
             // Serialize history
             root.add("history", gson.toJsonTree(history));
 
-            // Write to file
-            FileWriter writer = new FileWriter(DATA_FILE);
-            gson.toJson(root, writer);
-            writer.close();
+            // Temp file + atomic move: this is the only copy of the user's
+            // blacklist and history, so a crash mid-write must never truncate it.
+            JsonFileUtil.writeAtomic(new File(DATA_FILE), gson, root);
 
             LOGGER.debug("Saved player database");
 
@@ -455,9 +454,13 @@ public class PlayerDatabase {
         }
 
         try {
+            JsonObject root;
             FileReader reader = new FileReader(file);
-            JsonObject root = new JsonParser().parse(reader).getAsJsonObject();
-            reader.close();
+            try {
+                root = new JsonParser().parse(reader).getAsJsonObject();
+            } finally {
+                reader.close();
+            }
 
             // Deserialize blacklist
             if (root.has("blacklist")) {
@@ -485,7 +488,13 @@ public class PlayerDatabase {
             LOGGER.info("Loaded player database: {} blacklisted, {} in history", blacklist.size(), history.size());
 
         } catch (Exception e) {
+            // Quarantine the bad file: silently starting fresh here used to mean
+            // the next save overwrote the user's only copy with empty state.
             LOGGER.error("Error loading player database: {}", e.getMessage());
+            File quarantined = JsonFileUtil.quarantineCorrupt(file);
+            if (quarantined != null) {
+                LOGGER.error("Corrupt player database moved to {} — starting fresh", quarantined.getName());
+            }
         }
     }
 }

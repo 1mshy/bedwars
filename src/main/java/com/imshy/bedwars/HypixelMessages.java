@@ -54,4 +54,42 @@ public final class HypixelMessages {
      */
     public static final java.util.regex.Pattern FINAL_KILL_PATTERN = java.util.regex.Pattern.compile(
             "^([A-Za-z0-9_]{1,16}) .*?(?:by ([A-Za-z0-9_]{1,16})|escape ([A-Za-z0-9_]{1,16}))?\\.?\\s*FINAL KILL!");
+
+    /**
+     * True when {@code token} appears in {@code message} only after a colon —
+     * the shape of every player-authored chat line regardless of channel
+     * ("[MVP+] Name: VICTORY!", "Party &gt; Name: VICTORY!", "[SHOUT] [RED]
+     * Name: VICTORY!"). The system lines these tokens come from (the VICTORY
+     * header, the game-start explainer) contain no colon at all, so a colon
+     * anywhere before the token means a player typed it.
+     *
+     * <p>Do NOT use this for tokens that legitimately start a system
+     * {@code Something:} line (e.g. {@code "Winners: "}) — for those, match
+     * the line shape and use {@link #containsPlayerNameToken} instead.
+     */
+    public static boolean isPlayerTyped(String message, String token) {
+        int tokenIdx = message.indexOf(token);
+        if (tokenIdx < 0) {
+            return false;
+        }
+        int colonIdx = message.indexOf(':');
+        return colonIdx >= 0 && colonIdx < tokenIdx;
+    }
+
+    /**
+     * Whole-token player name match: true only when {@code playerName} appears
+     * in {@code line} as a complete name token, so a local "Sam" no longer
+     * false-matches a winner named "Samuel" the way {@code contains()} did.
+     */
+    public static boolean containsPlayerNameToken(String line, String playerName) {
+        if (line == null || playerName == null || playerName.isEmpty()) {
+            return false;
+        }
+        for (String token : line.split("[^A-Za-z0-9_]+")) {
+            if (token.equalsIgnoreCase(playerName)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

@@ -119,7 +119,9 @@ public class ProjectileTrackingService {
 
             boolean nearPlayer = tp.landingPlayerDistance < alertRadius;
             boolean nearBed = tp.landingBedDistance >= 0 && tp.landingBedDistance < alertRadius;
-            tp.threatening = nearPlayer || nearBed;
+            // A capped-out arc leaves landing* at the last integration step,
+            // not a real impact point — never judge threat from it.
+            tp.threatening = tp.landingValid && (nearPlayer || nearBed);
 
             if (tp.threatening && !alertedIds.contains(id)) {
                 alertedIds.add(id);

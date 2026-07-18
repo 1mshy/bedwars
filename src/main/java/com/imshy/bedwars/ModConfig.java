@@ -1204,9 +1204,11 @@ public class ModConfig {
                     "Master toggle. When false, all automatic features (stat lookup, alerts, HUD, audio) are disabled.");
             modEnabled = modEnabledProp.getBoolean();
 
-            // Apply the loaded API key to HypixelAPI
+            // Apply the loaded API key to HypixelAPI — unconditionally, so
+            // clearing the key in the config GUI revokes it immediately
+            // instead of keeping the old key until restart.
+            HypixelAPI.setApiKey(apiKey != null ? apiKey : "");
             if (apiKey != null && !apiKey.isEmpty()) {
-                HypixelAPI.setApiKey(apiKey);
                 LOGGER.info("API key loaded from config");
             }
 

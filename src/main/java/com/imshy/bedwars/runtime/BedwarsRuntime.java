@@ -343,7 +343,8 @@ public class BedwarsRuntime {
         handleChatMessageStatLookup(mc, message);
         handleReconnectMessage(mc, message);
 
-        if (message.contains(HypixelMessages.GAME_START)) {
+        if (message.contains(HypixelMessages.GAME_START)
+                && !HypixelMessages.isPlayerTyped(message, HypixelMessages.GAME_START)) {
             if (state.gamePhase != GamePhase.IN_GAME) {
                 finalKillLedger.clear();
                 killFeedTracker.clear();
@@ -361,13 +362,19 @@ public class BedwarsRuntime {
             String playerName = mc.thePlayer.getName();
             String trimmedMessage = message.trim();
 
-            // WIN detection: VICTORY! is a distinctive ASCII-art header so a plain
-            // contains() is safe. The other markers can appear inside player chat
-            // so they require trimmed-equality or startsWith plus a name check.
-            if (message.contains(HypixelMessages.WIN_VICTORY) ||
+            // WIN detection: a false positive here records a corrupted WIN and
+            // tears down all match tracking with no way to re-arm, so every
+            // marker must be unspoofable. "VICTORY!" appears verbatim in player
+            // chat ("[MVP+] Name: VICTORY!"), hence the isPlayerTyped gate; the
+            // startsWith markers can't be spoofed but need whole-token name
+            // matching so "Sam" doesn't match a winner named "Samuel".
+            if ((message.contains(HypixelMessages.WIN_VICTORY)
+                    && !HypixelMessages.isPlayerTyped(message, HypixelMessages.WIN_VICTORY)) ||
                     trimmedMessage.equals(HypixelMessages.WIN_YOU_WON) ||
-                    (trimmedMessage.startsWith(HypixelMessages.WIN_1ST_KILLER) && trimmedMessage.contains(playerName)) ||
-                    (trimmedMessage.startsWith("Winners: ") && trimmedMessage.contains(playerName))) {
+                    (trimmedMessage.startsWith(HypixelMessages.WIN_1ST_KILLER)
+                            && HypixelMessages.containsPlayerNameToken(trimmedMessage, playerName)) ||
+                    (trimmedMessage.startsWith("Winners: ")
+                            && HypixelMessages.containsPlayerNameToken(trimmedMessage, playerName))) {
 
                 LOGGER.info("WIN detected");
                 captureMatchSummary(MatchSummary.Outcome.WIN);

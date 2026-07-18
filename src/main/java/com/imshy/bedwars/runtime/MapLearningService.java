@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
+import com.imshy.bedwars.JsonFileUtil;
 import com.imshy.bedwars.MapMetadataRegistry;
 import com.imshy.bedwars.ModConfig;
 
@@ -16,7 +17,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.io.FileReader;
-import java.io.FileWriter;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -374,6 +374,10 @@ public class MapLearningService {
 
         } catch (Exception e) {
             LOGGER.error("Error loading learned map data: {}", e.getMessage());
+            File quarantined = JsonFileUtil.quarantineCorrupt(file);
+            if (quarantined != null) {
+                LOGGER.error("Corrupt learned map data moved to {} — starting fresh", quarantined.getName());
+            }
         }
     }
 
@@ -387,20 +391,11 @@ public class MapLearningService {
             JsonObject root = new JsonObject();
             root.add("maps", gson.toJsonTree(learnedMaps));
 
-            // Temp-file + rename so a crash mid-write can never truncate the
-            // data file. Pretty printing is kept deliberately: the file is
-            // small (bounded observations) and meant to be human-editable.
-            File tmp = new File(DATA_FILE + ".tmp");
-            FileWriter writer = new FileWriter(tmp);
-            gson.toJson(root, writer);
-            writer.close();
-            File target = new File(DATA_FILE);
-            if (target.exists() && !target.delete()) {
-                LOGGER.warn("Could not delete old learned map file before rename");
-            }
-            if (!tmp.renameTo(target)) {
-                LOGGER.warn("Could not move new learned map file into place");
-            }
+            // Temp-file + atomic move so a crash mid-write can never truncate
+            // the data file (the old delete-then-rename left a no-file window).
+            // Pretty printing is kept deliberately: the file is small (bounded
+            // observations) and meant to be human-editable.
+            JsonFileUtil.writeAtomic(new File(DATA_FILE), gson, root);
 
             LOGGER.debug("Saved learned map data");
 

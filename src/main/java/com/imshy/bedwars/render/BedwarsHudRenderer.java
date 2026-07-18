@@ -49,6 +49,12 @@ public class BedwarsHudRenderer {
     private static final int FACE_TEXT_GAP = 2;
     private static final int FACE_OFFSET = FACE_SIZE + FACE_TEXT_GAP;
     private static final long TEAM_SUMMARY_DURATION_MS = 10000;
+    private static final long THREAT_LIST_REFRESH_MS = 1000;
+
+    // Memoized like TeamDangerAnalyzer's summary: the tab scan + world-player
+    // matching is too heavy to rebuild every render frame.
+    private List<ThreatPlayerEntry> cachedThreatEntries = Collections.emptyList();
+    private long threatEntriesBuiltAt;
 
     public void render(ScaledResolution resolution, Minecraft mc,
                        TeamDangerAnalyzer teamDangerAnalyzer, WorldScanService worldScanService,
@@ -626,6 +632,41 @@ public class BedwarsHudRenderer {
         if (mc.theWorld == null || mc.thePlayer == null) {
             return false;
         }
+
+        long now = System.currentTimeMillis();
+        if (now - threatEntriesBuiltAt >= THREAT_LIST_REFRESH_MS) {
+            cachedThreatEntries = buildThreatEntries(mc, finalKillLedger);
+            threatEntriesBuiltAt = now;
+        }
+        List<ThreatPlayerEntry> threats = cachedThreatEntries;
+
+        if (threats.isEmpty()) {
+            return false;
+        }
+
+        lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "THREATS"));
+
+        for (ThreatPlayerEntry entry : threats) {
+            String threatColor = entry.threat == BedwarsStats.ThreatLevel.EXTREME
+                    ? EnumChatFormatting.DARK_RED.toString()
+                    : EnumChatFormatting.RED.toString();
+
+            String distanceText = entry.distance >= 0 ? entry.distance + "m" : "?m";
+
+            String line = entry.teamColor + entry.name
+                    + EnumChatFormatting.GRAY + " - "
+                    + threatColor + entry.threat.name()
+                    + EnumChatFormatting.GRAY + "  " + distanceText;
+            if (entry.matchFinals >= 2) {
+                line += " " + EnumChatFormatting.GOLD + "⚔" + entry.matchFinals;
+            }
+
+            lines.add(HudLine.playerLine(line, entry.skin));
+        }
+        return true;
+    }
+
+    private List<ThreatPlayerEntry> buildThreatEntries(Minecraft mc, FinalKillLedger finalKillLedger) {
         boolean carryBadges = ModConfig.isCarryBadgesEnabled() && finalKillLedger != null;
 
         Character ownColor = TabListScanner.getLocalPlayerColorCode(mc);
@@ -665,10 +706,6 @@ public class BedwarsHudRenderer {
                     matchFinals));
         }
 
-        if (threats.isEmpty()) {
-            return false;
-        }
-
         // The match's carry sorts to the top regardless of distance; distance
         // breaks ties (unresolved distances last).
         Collections.sort(threats, new Comparator<ThreatPlayerEntry>() {
@@ -681,27 +718,7 @@ public class BedwarsHudRenderer {
                 return a.name.compareToIgnoreCase(b.name);
             }
         });
-
-        lines.add(HudLine.text(EnumChatFormatting.BOLD.toString() + EnumChatFormatting.WHITE + "THREATS"));
-
-        for (ThreatPlayerEntry entry : threats) {
-            String threatColor = entry.threat == BedwarsStats.ThreatLevel.EXTREME
-                    ? EnumChatFormatting.DARK_RED.toString()
-                    : EnumChatFormatting.RED.toString();
-
-            String distanceText = entry.distance >= 0 ? entry.distance + "m" : "?m";
-
-            String line = entry.teamColor + entry.name
-                    + EnumChatFormatting.GRAY + " - "
-                    + threatColor + entry.threat.name()
-                    + EnumChatFormatting.GRAY + "  " + distanceText;
-            if (entry.matchFinals >= 2) {
-                line += " " + EnumChatFormatting.GOLD + "⚔" + entry.matchFinals;
-            }
-
-            lines.add(HudLine.playerLine(line, entry.skin));
-        }
-        return true;
+        return threats;
     }
 
     private boolean isExtremeThreatNearby(Minecraft mc) {

@@ -2,10 +2,13 @@
 // For those who want the bleeding edge
 buildscript {
     repositories {
-        jcenter()
+        // jcenter is decommissioned and files.minecraftforge.net refuses
+        // plain HTTP — these are the live successors.
+        mavenCentral()
+        gradlePluginPortal()
         maven {
             name = "forge"
-            url = "http://files.minecraftforge.net/maven"
+            url = "https://maven.minecraftforge.net"
         }
     }
     dependencies {

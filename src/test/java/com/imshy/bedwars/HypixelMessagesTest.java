@@ -145,4 +145,53 @@ public class HypixelMessagesTest {
                 .startsWith(HypixelMessages.NOT_IN_PARTY));
         assertEquals("Please don't spam the command!", HypixelMessages.AUTOPLAY_RATE_LIMIT);
     }
+
+    // ── isPlayerTyped (chat-spoof gate for WIN/GAME_START) ───────────────────
+
+    @Test
+    public void systemLinesAreNotPlayerTyped() {
+        assertFalse(HypixelMessages.isPlayerTyped(
+                "                                   VICTORY!", HypixelMessages.WIN_VICTORY));
+        assertFalse(HypixelMessages.isPlayerTyped(
+                "Protect your bed and destroy the enemy beds.", HypixelMessages.GAME_START));
+    }
+
+    @Test
+    public void chatEchoedTokensArePlayerTyped() {
+        // Every chat channel prefixes the typed content with "Name:", so a
+        // colon before the token marks the line player-authored.
+        assertTrue(HypixelMessages.isPlayerTyped(
+                "[MVP+] Griefer: VICTORY!", HypixelMessages.WIN_VICTORY));
+        assertTrue(HypixelMessages.isPlayerTyped(
+                "Griefer: VICTORY!", HypixelMessages.WIN_VICTORY));
+        assertTrue(HypixelMessages.isPlayerTyped(
+                "Party > [MVP+] Griefer: VICTORY!", HypixelMessages.WIN_VICTORY));
+        assertTrue(HypixelMessages.isPlayerTyped(
+                "[SHOUT] [RED] [VIP] Griefer: Protect your bed and destroy the enemy beds.",
+                HypixelMessages.GAME_START));
+    }
+
+    @Test
+    public void isPlayerTypedIsFalseWhenTokenAbsent() {
+        assertFalse(HypixelMessages.isPlayerTyped("Griefer: gg", HypixelMessages.WIN_VICTORY));
+    }
+
+    // ── containsPlayerNameToken (winners-line name matching) ─────────────────
+
+    @Test
+    public void nameTokenMatchesWholeTokensOnly() {
+        assertTrue(HypixelMessages.containsPlayerNameToken("Winners: Sam, Bob", "Sam"));
+        assertFalse("substring of a longer name must not match",
+                HypixelMessages.containsPlayerNameToken("Winners: Samuel, Bob", "Sam"));
+        assertTrue(HypixelMessages.containsPlayerNameToken(
+                "1st Killer - [MVP+] xX_Pro_Xx9 - 7 Kills", "xX_Pro_Xx9"));
+        assertFalse("underscored names are single tokens",
+                HypixelMessages.containsPlayerNameToken(
+                        "1st Killer - [MVP+] xX_Pro_Xx9 - 7 Kills", "Pro"));
+    }
+
+    @Test
+    public void nameTokenMatchIsCaseInsensitive() {
+        assertTrue(HypixelMessages.containsPlayerNameToken("Winners: sam", "Sam"));
+    }
 }
